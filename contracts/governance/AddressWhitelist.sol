@@ -6,7 +6,7 @@ import "../vaults/IVaultFactory.sol";
 /** 
 * An implementation of a simple whitelist system for addresses.
 * 
-* Used when an whitelist is enabled for either vault creation or withdrawals.
+* Used when a whitelist is enabled for either vault creation or withdrawals.
 * 
 * The AddressWhitelist is initialized with an owner that can update the
 * whitelist. It is up to the caller to determine whether to consult the whitelist
@@ -19,7 +19,7 @@ contract AddressWhitelist {
     * address argument is not the zero address.
     */
     modifier notZeroAddress(address addr) {
-        require(addr != address(0));
+        require(addr != address(0), "cannot use zero address");
         _;
     }
 
@@ -28,7 +28,7 @@ contract AddressWhitelist {
     * is the owner is required.
     */
     modifier onlyOwner() {
-        require(msg.sender == owner);
+        require(msg.sender == owner, "requires caller to be owner");
         _;
     }
 

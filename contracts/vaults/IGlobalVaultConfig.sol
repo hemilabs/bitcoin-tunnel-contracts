@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import "../interfaces/IBitcoinKit.sol";
-import "../BitcoinKit.sol";
+import "../bitcoinkit/IBitcoinKit.sol";
+import "../bitcoinkit/BitcoinKit.sol";
 
 /**
 * Implementation of the IGlobalVaultConfig contract serves to hold all of the configuration settings
 * that should be applied globally across all instances of a particular implementation of the IBitcoinVault
 * interface within the context of a single Bitcoin Tunnel deployment.
 * 
-* AN instance of an implementation of IGlobalVaultConfig should be defined at initialization for the 
-* IVaultFactory implementation which is responsible for creating the specific implementation of IBitcoinVault.
+* An instance of an implementation of IGlobalVaultConfig should be defined at initialization for the 
+* IVaultFactory implementation which is responsible for deploying contracts based on a specific implementation
+* of IBitcoinVault.
 * 
 * It is up to the implementation of IGlobalVaultConfig to determine if (and if so, how) values can
 * be updated. 

@@ -2,8 +2,8 @@
 pragma solidity ^0.8.25;
 
 import "../IGlobalVaultConfig.sol";
-import "../../interfaces/IBitcoinKit.sol";
-import "../../BitcoinKit.sol";
+import "../../bitcoinkit/IBitcoinKit.sol";
+import "../../bitcoinkit/BitcoinKit.sol";
 import "../../oracles/IAssetPriceOracle.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
@@ -97,8 +97,12 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     // For example, "20" means a maximum withdrawal fee of 0.20%.
     uint256 public maxWithdrawalFeeBasisPoints;
 
-    // The BitcoinKit contract that vaults should use
+    // A one-time latch that only configAdmin can set to permanently disable future
+    // updates to the IBitcoinKit implementation.
     IBitcoinKit public bitcoinKitContract;
+
+    // Permanently disable upgrading of Bitcoin Kit implementation
+    bool public bitcoinKitUpgradePermDisabled;
 
     // The ERC20 contract which is permitted to act as collateral for SimpleBitcoinVaults.
     // This cannot be updated after initialization.
@@ -166,6 +170,7 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
 
     // The address able to deprecate vaults. Set at construction and not changed.
     address public vaultDeprecationAdmin;
+
 
 
     constructor(address configAdminToSet, 
@@ -273,6 +278,7 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * @param newBitcoinKitContractAdmin The new bitcoinKitContractAdmin to set
     */
     function updateBitcoinKitContractAdmin(address newBitcoinKitContractAdmin) external onlyConfigAdmin notZeroAddress(newBitcoinKitContractAdmin) {
+        require(!bitcoinKitUpgradePermDisabled, "cannot update bitcoin kit admin when bitcoin kit upgrading is perm disabled");
         bitcoinKitContractAdmin = newBitcoinKitContractAdmin;
     }
 
@@ -348,8 +354,13 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * @param newBitcoinKitContract The new bitcoinKitContract to set
     */
     function updateBitcoinKitContract(IBitcoinKit newBitcoinKitContract) external senderPermissionCheck(bitcoinKitContractAdmin) notZeroAddress(address(newBitcoinKitContract)) {
+        require(!bitcoinKitUpgradePermDisabled, "bitcoin kit upgrades perm disabled");
         bitcoinKitContract = newBitcoinKitContract;
         emit BitcoinKitContractUpdated(address(newBitcoinKitContract));
+    }
+
+    function permDisableBitcoinKitUpgrades() external onlyConfigAdmin {
+        bitcoinKitUpgradePermDisabled = true;
     }
 
     /**
@@ -364,12 +375,15 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     }
 
     /**
-    * Deprecates the vaults, only callable by deprecation admin.
+    * Deprecates all vaults that consult this configuration contract, only callable by deprecation admin.
+    * This only sets the deprecation values, which must be read by the vaults themselves to detect the deprecation;
+    * no deprecation call is done directly on the vaults themselves.
     */
     function deprecate() external {
         require(msg.sender == vaultDeprecationAdmin, "only deprecation admin can deprecate");
         vaultSystemDeprecated = true;
         vaultSystemDeprecationTime = block.timestamp;
+        emit DeprecateAllVaults();
     }
 
     /**

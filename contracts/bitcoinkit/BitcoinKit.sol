@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "./interfaces/IBitcoinKit.sol";
-import "./utils/Utils.sol";
+import "./IBitcoinKit.sol";
+import "./Utils.sol";
 
 contract BitcoinKit is Utils {
 
@@ -23,7 +23,10 @@ contract BitcoinKit is Utils {
   }
 
   /**
-  * @dev Retrieves Bitcoin UTXOs for a given address, page number, and page size. This method constructs a 36-byte array consisting of the Bitcoin address in bytes followed by a 3-byte page number and a 1-byte page size, which it then sends in a static call to a precompiled contract expected at address `0x41`. The response from this call is decoded into an array of UTXO structs, each representing an unspent transaction output.
+  * @dev Retrieves Bitcoin UTXOs for a given address, page number, and page size. This method constructs a 36-byte array 
+  * consisting of the Bitcoin address in bytes followed by a 3-byte page number and a 1-byte page size, which it then 
+  * sends in a static call to a precompiled contract expected at address `0x41`. The response from this call is decoded 
+  * into an array of UTXO structs, each representing an unspent transaction output.
   *
   * Input for the static call is structured as follows:
   * - Bytes 0-31: Bitcoin address in ASCII bytes.
