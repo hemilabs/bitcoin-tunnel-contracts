@@ -8,5 +8,5 @@ import "../../BTCToken.sol";
 
 
 interface ISimpleBitcoinVaultStateFactory {
-    function createSimpleBitcoinVaultState(SimpleBitcoinVault parentVault, SimpleGlobalVaultConfig vaultConfig, BTCToken btcTokenContract) external returns (SimpleBitcoinVaultState);
+    function createSimpleBitcoinVaultState(SimpleBitcoinVault parentVault, address operatorAdmin, SimpleGlobalVaultConfig vaultConfig, BTCToken btcTokenContract) external returns (SimpleBitcoinVaultState);
 }

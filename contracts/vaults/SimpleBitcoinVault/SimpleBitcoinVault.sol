@@ -278,7 +278,7 @@ import "./SimpleBitcoinVaultUTXOLogicHelper.sol";
  *
  * Because it is expected that multiple vaults will be competing for traffic from users in both the
  * deposit and withdrawal market, allowing these two rates to be different should not create
- * "ransom" scenarios (depsoits are cheap but withdrawals are expensive and that withdrawal fee is
+ * "ransom" scenarios (deposits are cheap but withdrawals are expensive and that withdrawal fee is
  * laid off on the user who ends up with the hBTC in the end) because operators are openly competing
  * with each other for both deposits and withdrawals.
  *
@@ -403,7 +403,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     uint256 minCollateralAmount;
 
     // Bitcoin custodian address
-    string bitcoinCustodyAddress;
+    string public bitcoinCustodyAddress;
 
     // The keccak256 hash of the bitcoinCustodyAddress's corresponding BTC lock script
     bytes32 bitcoinCustodyAddressScriptHash;
@@ -446,7 +446,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
         minCollateralAmount = vaultConfig.getMinCollateralAssetAmount();
 
-        vaultStateChild = vaultStateFactory.createSimpleBitcoinVaultState(this, _vaultConfig, _btcTokenContract);
+        vaultStateChild = vaultStateFactory.createSimpleBitcoinVaultState(this, _operatorAdmin, _vaultConfig, _btcTokenContract);
 
         utxoLogicHelper = _utxoLogicHelper;
     }
@@ -474,7 +474,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * not live yet), or in the LIVE state as long as the vault is not winding down (meaning it will
      * be set to CLOSING_INIT soon).
      *
-     * When an operator initiates the closure of the vault or the vault is undergoinng a full
+     * When an operator initiates the closure of the vault or the vault is undergoing a full
      * liquidation, additional collateral cannot be deposited.
      *
      * @param amount The amount (in atomic units) of collateral to deposit

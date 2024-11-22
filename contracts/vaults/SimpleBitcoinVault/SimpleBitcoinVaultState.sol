@@ -237,11 +237,11 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     // Mapping of each partial liquidation index to its current state
     mapping(uint32 => PartialLiquidation) public partialLiquidationStatus;
     
-    constructor (SimpleBitcoinVault _parentVault, SimpleGlobalVaultConfig _vaultConfig, BTCToken _btcTokenContract) {
+    constructor (SimpleBitcoinVault _parentVault, address _operatorAdmin, SimpleGlobalVaultConfig _vaultConfig, BTCToken _btcTokenContract) {
         parentVault = _parentVault;
         vaultConfig = _vaultConfig;
         btcTokenContract = _btcTokenContract;
-        operatorAdmin = _parentVault.operatorAdmin();
+        operatorAdmin = _operatorAdmin;
 
         softCollateralizationThreshold = _vaultConfig.getSoftCollateralizationThreshold();
         hardCollateralizationThreshold = _vaultConfig.getHardCollateralizationThreshold();
@@ -733,6 +733,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @return storedWithdrawal The withdrawal stored at that index. If the withdrawal does not exist, will return a zero-filled struct.
     */
     function getWithdrawal(uint32 uuid) external view returns (Withdrawal memory storedWithdrawal) {
+        require(uuid < withdrawalCounter, "withdrawal does not exist");
         return withdrawals[uuid];
     }
 

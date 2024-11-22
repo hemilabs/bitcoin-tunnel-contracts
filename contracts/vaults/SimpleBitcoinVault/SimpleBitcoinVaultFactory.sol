@@ -151,6 +151,7 @@ contract SimpleBitcoinVaultFactory is IVaultFactory {
         bitcoinTokenContract = _bitcoinTokenContract;
         vaultFactoryHelper = _vaultFactoryHelper;
         vaultStateFactory = _vaultStateFactory;
+        utxoLogicHelper = _utxoLogicHelper;
     }
 
     /**

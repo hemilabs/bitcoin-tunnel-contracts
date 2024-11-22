@@ -5,7 +5,7 @@ import "./ISimpleBitcoinVaultStateFactory.sol";
 import "./SimpleBitcoinVaultState.sol";
 
 contract SimpleBitcoinVaultStateFactory is ISimpleBitcoinVaultStateFactory {
-    function createSimpleBitcoinVaultState(SimpleBitcoinVault parentVault, SimpleGlobalVaultConfig vaultConfig, BTCToken btcTokenContract) external returns (SimpleBitcoinVaultState vaultState) {
-        return new SimpleBitcoinVaultState(parentVault, vaultConfig, btcTokenContract);
+    function createSimpleBitcoinVaultState(SimpleBitcoinVault parentVault, address operatorAdmin, SimpleGlobalVaultConfig vaultConfig, BTCToken btcTokenContract) external returns (SimpleBitcoinVaultState vaultState) {
+        return new SimpleBitcoinVaultState(parentVault, operatorAdmin, vaultConfig, btcTokenContract);
     }
 }

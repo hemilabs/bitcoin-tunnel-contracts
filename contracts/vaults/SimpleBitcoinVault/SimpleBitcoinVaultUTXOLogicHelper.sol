@@ -38,7 +38,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
 
 
 
-        // The depositer must format the deposit Bitcoin tranaction to contain the Bitcoin output
+        // The depositor must format the deposit Bitcoin transaction to contain the Bitcoin output
         // corresponding to this vault and the OP_RETURN with their EVM address to credit for the
         // deposit within the number of outputs returned by the BitcoinKit's built-in
         // getTransactionByTxId.
@@ -119,6 +119,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         require(btcTx.outputs.length >= 1 && btcTx.outputs.length < 3, "withdrawal transaction must have at least one output and no more than two");
 
         Withdrawal memory withdrawal = vaultStateChild.getWithdrawal(withdrawalIndex);
+        require(withdrawal.amount > 0, "withdrawal does not exist");
 
         Output memory withdrawalOutput = btcTx.outputs[0];
         require(keccak256(withdrawalOutput.script) == keccak256(withdrawal.destinationScript), 

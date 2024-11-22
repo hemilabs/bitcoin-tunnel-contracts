@@ -387,6 +387,8 @@ contract GlobalConfig {
         validateVaultFactoryConfig(initialVaultFactory);
 
         vaultFactory = initialVaultFactory;
+
+        vaultFactory.activateFactory();
     }
 
     /**
