@@ -215,7 +215,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         // Get the actual withdrawal transaction from Bitcoin based on the txid
         Transaction memory btcTx = bitcoinKit.getTransactionByTxId(sweepTxId);
 
-        require(btcTx.totalInputs >= 2 && btcTx.totalInputs<= 8, 
+        require(btcTx.totalInputs >= 2 && btcTx.totalInputs <= 8, 
         "a sweep transaction must have at least two inputs and no more than eight");
         
         require(btcTx.totalOutputs == 1, "a sweep transaction must have a single output");
@@ -411,7 +411,6 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         require(inputIndexToBlame < txInputCount, "input does not exist in transaction");
 
         uint32 txOutputCount = bitcoinKit.getTxOutputCount(txid);
-
         // Get the input the reporter is claiming spends the confirmed-but-unswept deposit UTXO
         Input memory sweepSpendInput = bitcoinKit.getSpecificTxInput(txid, inputIndexToBlame);
 
@@ -436,13 +435,33 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
             return true;
         }
 
+        if (inputIndexToBlame == 0) {
+            // Sweeps cannot spend a confirmed deposit as the first input (index 0). It is possible
+            // for an operator to process a withdrawal that consumes the sweep UTXO entirely and requires
+            // the operator to set a new confirmed deposit as the new sweep UTXO, but per the protocol they
+            // must select this confirmed deposit as the new sweep with their tunnel contract before using
+            // it as a sweep UTXO on Bitcoin, therefore if this code identifies a spend of a confirmed 
+            // deposit the operator has misbehaved.
+            return true;
+        }
+
         Transaction memory fullTx = bitcoinKit.getTransactionByTxId(txid);
         if (vaultCustodyScriptHash != keccak256(fullTx.outputs[0].script)) {
             // Sweeps must send the swept funds to the vault's BTC custodianship address's corresponding script
             return true;
         }
 
-        // Check that all inputs other than the sweep spend actually spend a confirmed deposit
+        // Check that all inputs other than the sweep spend actually spend a confirmed deposit.
+        // Assumes that BitcoinKit returns at least 8 inputs in the standard transaction call.
+        // Even if BitcoinKit did not return all 8 inputs, it would be possible to call this
+        // function with the other index which is an invalid spend, which would confirm invalid
+        // confirmed deposit spending earlier in this function  rather than blaming a valid
+        // confirmed deposit spend which is invalid because of another input in the same
+        // transaction being invalid which this section handles. This section is included as
+        // a convenience so a caller who saw their input spent in an invalid sweep that is not
+        // confirmed can call this function and successfully demonstrate an incorrect confirmed
+        // deposit spend without having to track down the other input to the transaction which
+        // specifically makes it invalid.
         for (uint32 idx = 1; idx < fullTx.inputs.length; idx++) {
             Input memory depositIn = fullTx.inputs[idx];
 
@@ -500,6 +519,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
                     // sweep we are analyzing must be invalid.
                     return true;
                 }
+
                 if (outputIndexToCheck != 1) {
                     // The output of this transaction which we traversed backwards through is
                     // not 1, and a withdrawal must always output its new sweep UTXO as output
@@ -542,6 +562,8 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
                     // at index 0, therefore the previous tx we are analyzing must be invalid
                     // because it did not spend what should be the sweep UTXO from this potential
                     // sweep.
+                    // Should not be possible due to previous check that the output count must be 1,
+                    // but additional sanity check.
                     return true;
                 }
 

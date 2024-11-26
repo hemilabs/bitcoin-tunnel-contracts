@@ -810,9 +810,9 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * @param amountToMint The amount of collected fees to mint
     */
     function mintOperatorFees(address operator, uint256 amountToMint) external onlyTunnelAdmin returns (bool success, uint256 sats) {
-        require(operator == tunnelAdmin, "operator fees can only be minted by tunnel admin");
+        require(operator == operatorAdmin, "operator fees can only be minted by tunnel admin");
         require(totalPendingFeesCollected > 0, "there must be a non-zero number of pending fees to mint operator fees");
-        require(amountToMint >= totalPendingFeesCollected, "cannot mint more operator fees than have been collected");
+        require(amountToMint <= totalPendingFeesCollected, "cannot mint more operator fees than have been collected");
 
         // Only permitted when the vault is live, otherwise vault is closing and operator will instead collect fees by owning
         // them directly on Bitcoin.
