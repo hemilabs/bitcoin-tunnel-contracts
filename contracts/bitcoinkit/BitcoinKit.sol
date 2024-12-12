@@ -14,6 +14,11 @@ contract BitcoinKit is Utils {
     return uint64(bytes8(out));
   }
 
+  function isAddressValid(string calldata btcAddress) external view returns (bool) {
+    bytes memory script = getScriptForAddress(btcAddress);
+    return script.length != 0;
+  }
+
   function getScriptForAddress(string calldata btcAddress) public view returns (bytes memory script) {
     bytes memory converted = bytes(btcAddress);
     (bool ok, bytes memory out) = address(0x46).staticcall(converted);
@@ -86,7 +91,86 @@ contract BitcoinKit is Utils {
     return utxos;
   }
 
-  function getTransactionByTxId(bytes32 txId) external view returns (Transaction memory) {
+  function transactionExists(bytes32 txId) external view returns (bool exists) {
+        // Configuring bitflag1
+    uint8 bitflag1 = 0;
+    
+    // placeholder for includeTxHash
+    bitflag1 |= (0 << 6); // Include containing block info
+    bitflag1 |= (0 << 5); // Include transaction version
+    bitflag1 |= (0 << 4); // Include size, vSize, and weight
+    bitflag1 |= (0 << 3); // Include locktime
+    bitflag1 |= (1 << 2); // Include inputs information
+    bitflag1 |= (0 << 1); // Include TxID and source index for each input
+    bitflag1 |= (0 << 0); // Include input scriptSig
+
+    // Configuring bitflag2
+    uint8 bitflag2 = 0;
+
+    bitflag2 |= (0 << 7); // Include input sequence
+    bitflag2 |= (0 << 6); // Include outputs
+    bitflag2 |= (0 << 5); // Include output script information
+    bitflag2 |= (0 << 4); // Include output address
+    bitflag2 |= (0 << 3); // Include unspendable outputs (ex: OP_RETURN)
+    bitflag2 |= (0 << 2); // Include output spent status
+    bitflag2 |= (0 << 1); // Include information on where the output was spent
+    
+    // Setting bitflag3 with two 3-bit values for maxInputsExponent and maxOutputsExponent
+    uint8 bitflag3 = 0;
+
+    // To limit to 2^0 = 1 inputs/outputs, set X=0 for both maxInputsExponent and maxOutputsExponent
+    uint8 maxInputsExponent = 5; // This example sets it to 2^5 = 32
+    uint8 maxOutputsExponent = 5; // Similarly, for outputs
+
+    // Assign the exponents to bitflag3, considering the first two bits are unused
+    // maxInputsExponent occupies bits 3-5 (xxXXXxxx)
+    // maxOutputsExponent occupies bits 0-2 (xxxxxxXXX)
+    bitflag3 |= (maxInputsExponent << 3);
+    bitflag3 |= maxOutputsExponent;
+
+    // Setting bitflag4 with two 2-bit values for maxInputScriptSigSizeExponent and maxOutputScriptSizeExponent
+    uint8 bitflag4 = 0;
+
+    // To limit script sizes to 2^(0+4) = 16 bytes, set both exponents to 0
+    uint8 maxInputScriptSigSizeExponent = 2; // Limits input scripts to 64 bytes
+    uint8 maxOutputScriptSizeExponent = 2; // Limits output scripts to 64 bytes
+
+    // Assign the exponents to bitflag4, considering the first four bits are unused
+    // maxInputScriptSigSizeExponent occupies bits 2-3 (xxxxXXxx)
+    // maxOutputScriptSizeExponent occupies bits 0-1 (xxxxxxXX)
+    bitflag4 |= (maxInputScriptSigSizeExponent << 2);
+    bitflag4 |= (maxOutputScriptSizeExponent << 0);
+
+    (bool ok, bytes memory out) = address(0x42).staticcall(abi.encodePacked(txId, bitflag1, bitflag2, bitflag3, bitflag4));
+    require(ok, "Static call to btcTxByTxid precompile (0x42) contract failed");
+    if (out.length > 0) {
+      return true;
+    }
+    return false;
+  }
+
+  function getTxInputCount(bytes32 txId) external view returns (uint32 txInputCount) {
+    Transaction memory btcTx = getTransactionByTxId(txId);
+    return uint32(btcTx.totalInputs);
+  }
+
+  function getTxOutputCount(bytes32 txId) external view returns (uint32 txOutputCount) {
+    Transaction memory btcTx = getTransactionByTxId(txId);
+    return uint32(btcTx.totalOutputs);
+  }
+
+  function getSpecificTxInput(bytes32 txId, uint32 inputIndex) external view returns (Input memory) {
+    Transaction memory btcTx = getTransactionByTxId(txId);
+    return btcTx.inputs[inputIndex];
+  }
+
+  function getSpecificTxOutput(bytes32 txId, uint32 outputIndex) external view returns (Output memory) {
+    Transaction memory btcTx = getTransactionByTxId(txId);
+    return btcTx.outputs[outputIndex];
+  }
+
+
+  function getTransactionByTxId(bytes32 txId) public view returns (Transaction memory) {
     // Configuring bitflag1
     uint8 bitflag1 = 0;
     

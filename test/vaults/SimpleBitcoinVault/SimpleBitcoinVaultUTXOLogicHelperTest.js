@@ -421,6 +421,43 @@ const {
     const withdrawalUser2Script = "0x7777777755449911aabb77cc33ddee00cc88aa1100cc55dd";
     const withdrawalUser2EVMAddress = "0xdd00aaaadd00aaaadd00aaaadd00aaaadd00aaaa"
 
+    const outputWithOpReturnWithdrawalIndex0 = {
+        outValue: 0,
+        script: "0x6a0400000000",
+        outputAddress: "",
+        isOpReturn: true,
+        opReturnData: "0x00000000",
+        isSpent: false,
+        fullScriptLength: 6,
+        containsFullScript: true,
+        spentDetail: spentDetail1
+    }
+
+    const outputWithOpReturnWithdrawalIndex1 = {
+        outValue: 0,
+        script: "0x6a0400000001",
+        outputAddress: "",
+        isOpReturn: true,
+        opReturnData: "0x00000001",
+        isSpent: false,
+        fullScriptLength: 6,
+        containsFullScript: true,
+        spentDetail: spentDetail1
+    }
+
+
+    const outputWithOpReturnWithdrawalIndex4041265344 = {
+        outValue: 0,
+        script: "0x6a04f0e0d0c0",
+        outputAddress: "",
+        isOpReturn: true,
+        opReturnData: "0xf0e0d0c0",
+        isSpent: false,
+        fullScriptLength: 6,
+        containsFullScript: true,
+        spentDetail: spentDetail1
+    }
+
     const outputToWithdrawalUser1_1 = {
         outValue: 50000,
         script: withdrawalUser1Script,
@@ -663,7 +700,7 @@ const {
     }
 
     const withdrawalToUser1_1 = {
-        withdrawalCounter: 3,
+        withdrawalCounter: 4041265344,
         amount: 220000,
         fee: 40000,
         timestampRequested: 600,
@@ -672,7 +709,7 @@ const {
     }
 
     const withdrawalToUser1_2 = {
-        withdrawalCounter: 7,
+        withdrawalCounter: 4041265344,
         amount: 200000,
         fee: 20000,
         timestampRequested: 625,
@@ -681,7 +718,7 @@ const {
     }
 
     const withdrawalToUser1_3 = {
-        withdrawalCounter: 8,
+        withdrawalCounter: 4041265344,
         amount: 195000,
         fee: 15000,
         timestampRequested: 630,
@@ -1098,7 +1135,7 @@ const {
         vSize: 150,
         lockTime: 0,
         inputs: [inputSpendingSweep1],
-        outputs: [output1, output2, output3],
+        outputs: [output1, output2, output3, output4],
         totalInputs: 1,
         totalOutputs: 3,
         containsAllInputs: true,
@@ -1140,7 +1177,7 @@ const {
         vSize: 150,
         lockTime: 0,
         inputs: [inputSpendingSweep1], // 200000 in
-        outputs: [outputToWithdrawalUser1_1], // 50000 out
+        outputs: [outputToWithdrawalUser1_1, outputWithOpReturnWithdrawalIndex0], // 50000 out
         totalInputs: 1,
         totalOutputs: 1,
         containsAllInputs: true,
@@ -1154,7 +1191,7 @@ const {
         vSize: 150,
         lockTime: 0,
         inputs: [inputSpendingSweep1], // 200000 in
-        outputs: [outputToWithdrawalUser1_2], // 180000 out
+        outputs: [outputToWithdrawalUser1_2, outputWithOpReturnWithdrawalIndex4041265344], // 180000 out
         totalInputs: 1,
         totalOutputs: 1,
         containsAllInputs: true,
@@ -1168,7 +1205,7 @@ const {
         vSize: 150,
         lockTime: 0,
         inputs: [inputSpendingSweep1], // 200000 in
-        outputs: [outputToWithdrawalUser1_1, withdrawalOutputToCustodian1_1], // 50000 to user 1 120000 back to vault as sweep
+        outputs: [outputToWithdrawalUser1_1, withdrawalOutputToCustodian1_1, outputWithOpReturnWithdrawalIndex0], // 50000 to user 1 120000 back to vault as sweep
         totalInputs: 1,
         totalOutputs: 2,
         containsAllInputs: true,
@@ -1182,7 +1219,7 @@ const {
         vSize: 150,
         lockTime: 0,
         inputs: [inputSpendingSweep1], // 200000 in
-        outputs: [outputToWithdrawalUser2_1], // 50000 out
+        outputs: [outputToWithdrawalUser2_1, outputWithOpReturnWithdrawalIndex0], // 50000 out
         totalInputs: 1,
         totalOutputs: 1,
         containsAllInputs: true,
@@ -1196,7 +1233,7 @@ const {
         vSize: 150,
         lockTime: 0,
         inputs: [inputSpendingSweep1], // 200000 in
-        outputs: [outputToWithdrawalUser2_1, withdrawalOutputToCustodian1_1], // 50000 to user 2 120000 back to vault as sweep
+        outputs: [outputToWithdrawalUser2_1, withdrawalOutputToCustodian1_1, outputWithOpReturnWithdrawalIndex0], // 50000 to user 2 120000 back to vault as sweep
         totalInputs: 1,
         totalOutputs: 2,
         containsAllInputs: true,
@@ -1210,7 +1247,7 @@ const {
         vSize: 150,
         lockTime: 0,
         inputs: [inputSpendingSweep1], // 200000 in
-        outputs: [outputToWithdrawalUser2_1, withdrawalOutputToCustodian1_1], // 50000 to user 2 120000 back to vault as sweep
+        outputs: [outputToWithdrawalUser2_1, withdrawalOutputToCustodian1_1, outputWithOpReturnWithdrawalIndex0], // 50000 to user 2 120000 back to vault as sweep
         totalInputs: 1,
         totalOutputs: 2,
         containsAllInputs: true,
@@ -1883,6 +1920,288 @@ const {
         expect(await utxoLogicHelperContract.MAX_SWEEP_UTXO_WALKBACK(), 10);
       });
     });
+
+
+    describe("Extract Withdrawal Index From OP_RETURN", function () {
+        it("Should extract indexes correctly from 6-byte OP_RETURN", async function () {
+          const { utxoLogicHelperContract } = await loadFixture(deploySimpleBitcoinVaultUTXOLogicHelper);
+  
+          // 1-byte encoded index
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400000000"), 0);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400000001"), 1);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400000005"), 5);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040000007f"), 127);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400000080"), 128);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04000000f0"), 240);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04000000ff"), 255);
+
+          // 2-byte encoded index
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400000100"), 256);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400000101"), 257);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040000017f"), 383);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400000180"), 384);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400000181"), 385);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04000001ff"), 511);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400007f00"), 33512);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400007fff"), 33767);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400008000"), 32768);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400008001"), 32769);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040000807f"), 32895);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04000080ff"), 33023);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040000fcfd"), 64765);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040000ffff"), 65535);
+
+          // 3-byte encoded index
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400010000"), 65536);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400010001"), 65537);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040001007f"), 65663);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400017e7f"), 97919);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040001feff"), 130815);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040001fffe"), 131070);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040001ffff"), 131071);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04007f0000"), 8323072);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04007f0001"), 8323073);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04007f007e"), 8323198);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04007f7d7e"), 8355198);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400800000"), 8388608);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400800001"), 8388609);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040080007f"), 8388735);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400807f7f"), 8421247);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400808080"), 8421504);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040080ffff"), 8454143);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400eeffff"), 15663103);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0400ffffff"), 16777215);
+
+          // 4-byte encoded index
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0401000000"), 16777216);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0401000001"), 16777217);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040100007f"), 16777343);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0401000080"), 16777344);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04010000ff"), 16777471);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0401000100"), 16777472);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040100017f"), 16777599);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0401007f7e"), 16809854);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0401007fff"), 16809983);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0401008000"), 16809984);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040100807f"), 16810111);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04010080ff"), 16810239);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040100ff00"), 16842496);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040100ff7f"), 16842623);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040100ff80"), 16842624);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040100fffe"), 16842750);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a040100ffff"), 16842751);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04017f0000"), 25100288);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04017f007d"), 25100413);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04017f0080"), 25100416);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04017f00ff"), 25100543);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04017f7f00"), 25132800);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04017f7f7f"), 25132927);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04017f7fff"), 25133055);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04017fffff"), 25165823);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0401ffffff"), 33554431);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a047f000000"), 2130706432);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a047f0000ff"), 2130706687);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a047f00feff"), 2130771711);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a047ffdfeff"), 2147352319);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a047fffffff"), 2147483647);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0480000000"), 2147483648);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a048000007f"), 2147483775);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0480007fff"), 2147516415);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04800080ff"), 2147516671);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a048000ffff"), 2147549183);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04807fffff"), 2155872255);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a048080ffff"), 2155937791);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0480fffefd"), 2164260605);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0480ffffff"), 2164260863);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04fe000000"), 4261412864);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04fefdfcfb"), 4278058235);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04feffffff"), 4278190079);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04ff000000"), 4278190080);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04ff7d7e7f"), 4286414463);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04ff808182"), 4286611842);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04fffefdfc"), 4294901244);
+          expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a04ffffffff"), 4294967295);
+        });
+
+        it("Should extract indexes correctly from 7-byte OP_RETURN", async function () {
+            const { utxoLogicHelperContract } = await loadFixture(deploySimpleBitcoinVaultUTXOLogicHelper);
+    
+            // 1-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500000000ff"), 0);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500000001fe"), 1);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500000005fa"), 5);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050000007f7f"), 127);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050000008000"), 128);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05000000f0ab"), 240);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05000000ffc9"), 255);
+  
+            // 2-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500000100ab"), 256);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500000101ff"), 257);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050000017fce"), 383);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05000001803d"), 384);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05000001815f"), 385);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05000001fffa"), 511);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500007f00ad"), 33512);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500007fffca"), 33767);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050000800000"), 32768);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500008001f1"), 32769);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050000807fc3"), 32895);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05000080ff3d"), 33023);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050000fcfd8a"), 64765);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050000ffff7f"), 65535);
+  
+            // 3-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500010000ab"), 65536);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500010001ca"), 65537);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050001007fc1"), 65663);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500017e7fdf"), 97919);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050001feff99"), 130815);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050001fffe81"), 131070);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050001ffff32"), 131071);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05007f000061"), 8323072);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05007f000172"), 8323073);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05007f007eab"), 8323198);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05007f7d7ecc"), 8355198);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500800000ef"), 8388608);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500800001ab"), 8388609);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050080007fa4"), 8388735);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500807f7f4e"), 8421247);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050080808076"), 8421504);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050080ffff90"), 8454143);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500eeffff21"), 15663103);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0500ffffff0f"), 16777215);
+  
+            // 4-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100000000"), 16777216);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0501000001af"), 16777217);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100007fed"), 16777343);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100008011"), 16777344);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05010000ff33"), 16777471);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100010055"), 16777472);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100017ff1"), 16777599);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0501007f7eff"), 16809854);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0501007ffff7"), 16809983);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100800051"), 16809984);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100807f32"), 16810111);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05010080ffae"), 16810239);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100ff00f4"), 16842496);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100ff7fd3"), 16842623);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100ff80c9"), 16842624);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100fffeaf"), 16842750);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a050100ffffed"), 16842751);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05017f0000e9"), 25100288);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05017f007d7d"), 25100413);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05017f008000"), 25100416);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05017f00ff00"), 25100543);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05017f7f0001"), 25132800);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05017f7f7f02"), 25132927);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05017f7fffff"), 25133055);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05017ffffffe"), 25165823);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0501fffffffa"), 33554431);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a057f000000f7"), 2130706432);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a057f0000ffef"), 2130706687);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a057f00feffab"), 2130771711);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a057ffdfeff91"), 2147352319);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a057fffffff58"), 2147483647);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a058000000049"), 2147483648);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a058000007f7f"), 2147483775);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0580007ffff7"), 2147516415);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05800080ffff"), 2147516671);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a058000ffffab"), 2147549183);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05807fffff7c"), 2155872255);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a058080ffff61"), 2155937791);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0580fffefd92"), 2164260605);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a0580ffffffba"), 2164260863);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05fe00000033"), 4261412864);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05fefdfcfb65"), 4278058235);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05feffffff6f"), 4278190079);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05ff0000009f"), 4278190080);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05ff7d7e7f80"), 4286414463);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05ff80818200"), 4286611842);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05fffefdfcff"), 4294901244);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a05ffffffffea"), 4294967295);
+          });
+
+        it("Should extract indexes correctly from 75-byte OP_RETURN", async function () {
+            const { utxoLogicHelperContract } = await loadFixture(deploySimpleBitcoinVaultUTXOLogicHelper);
+    
+            // 1-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b00000000683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 0);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b0000007f683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 127);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b000000ff683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 255);
+  
+            // 2-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b00000100683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 256);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b0000017f683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 383);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b000001ff683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 511);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b00000200683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 512);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b00007f7e683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 32638);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b0000ff00683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 65280);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b0000fffe683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 65534);
+  
+            // 3-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b00010000683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 65536);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b000100fe683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 65790);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b0001fffe683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 131070);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b007ffffe683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 8388606);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b0080fffe683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 8454142);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b00fffefd683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 16776957);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b00ffffff683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 16777215);
+  
+            // 4-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b01000000683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 16777216);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b0100007f683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 16777343);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b0100fefd683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 16842493);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b01fffafc683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 33553148);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b7f000000683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 133169152);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b7f0000ff683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 2130706687);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b7f00ffff683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 2130771967);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b7ffefdfc683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 2147417596);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4b80000000683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 2147483648);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4bfffefdfc683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707"), 4294901244);
+          });
+
+          // 76+ byte OP_RETURN have an extra byte because there is no OP_PUSHBYTES_76+, so OP_PUSHDATA1 + (length) is used
+        it("Should extract indexes correctly from 76-byte OP_RETURN", async function () {
+            const { utxoLogicHelperContract } = await loadFixture(deploySimpleBitcoinVaultUTXOLogicHelper);
+    
+            // 1-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c00000000683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70701"), 0);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c0000007f683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70702"), 127);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c000000ff683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707af"), 255);
+  
+            // 2-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c00000100683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707ff"), 256);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c0000017f683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707b1"), 383);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c000001ff683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707c2"), 511);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c00000200683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707e4"), 512);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c00007f7e683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707f5"), 32638);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c0000ff00683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707ab"), 65280);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c0000fffe683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70777"), 65534);
+  
+            // 3-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c00010000683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707ff"), 65536);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c000100fe683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70766"), 65790);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c0001fffe683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70755"), 131070);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c007ffffe683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70744"), 8388606);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c0080fffe683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70733"), 8454142);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c00fffefd683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70722"), 16776957);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c00ffffff683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707fa"), 16777215);
+  
+            // 4-byte encoded index
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c01000000683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707ab"), 16777216);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c0100007f683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707ac"), 16777343);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c0100fefd683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb707ad"), 16842493);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c01fffafc683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70701"), 33553148);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c7f000000683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70722"), 133169152);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c7f0000ff683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70736"), 2130706687);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c7f00ffff683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70798"), 2130771967);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c7ffefdfc683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70778"), 2147417596);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4c80000000683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70776"), 2147483648);
+            expect(await utxoLogicHelperContract.extractWithdrawalIndexFromOpReturn("0x6a4c4cfffefdfc683f7930e9402a7806ef427f835c96c7f5f1908302b9dc67760961beb2a88bcc2c006d97195f545e1c08c4eca0a417648490d3cf059341303b3dab8d4ad24f8cea29f1fd9eb70775"), 4294901244);
+          });
+      });
 
     describe("Check Deposit Confirmation Validity", function () {
         it("Should reject deposit that is already acknowledged", async function () {
@@ -2663,11 +2982,10 @@ const {
                 sweepUTXO1, // set a real sweep UTXO
                 sweepUTXO1Output,
                 await mockSimpleBitcoinVaultStateContract.getAddress()
-            )).to.be.revertedWith("withdrawal transaction must have at least one output and no more than two");
+            )).to.be.revertedWith("withdrawal transaction must have at least two outputs and no more than three");
         });
 
-        // Not something that's allowed by the Bitcoin protocol, but mind as well check anyway as it should not be allowed
-        it("Should reject withdrawal fulfillment for btc tx that has more than two outputs", async function () {
+        it("Should reject withdrawal fulfillment for btc tx that has more than three outputs", async function () {
             const { utxoLogicHelperContract, mockSimpleBitcoinVaultStateContract, 
             mockBitcoinKitContract, deployer, notOwner1, notOwner2 } = await loadFixture(deployUTXOHelperWithSupportingContracts);
 
@@ -2683,7 +3001,7 @@ const {
                 sweepUTXO1, // set a real sweep UTXO
                 sweepUTXO1Output,
                 await mockSimpleBitcoinVaultStateContract.getAddress()
-            )).to.be.revertedWith("withdrawal transaction must have at least one output and no more than two");
+            )).to.be.revertedWith("withdrawal transaction must have at least two outputs and no more than three");
 
             await expect(utxoLogicHelperContract.checkWithdrawalFinalizationValidity(
                 txid2,
@@ -2693,7 +3011,7 @@ const {
                 sweepUTXO1, // set a real sweep UTXO
                 sweepUTXO1Output,
                 await mockSimpleBitcoinVaultStateContract.getAddress()
-            )).to.be.revertedWith("withdrawal transaction must have at least one output and no more than two");
+            )).to.be.revertedWith("withdrawal transaction must have at least two outputs and no more than three");
 
             await expect(utxoLogicHelperContract.checkWithdrawalFinalizationValidity(
                 txid3,
@@ -2703,46 +3021,7 @@ const {
                 sweepUTXO1, // set a real sweep UTXO
                 sweepUTXO1Output,
                 await mockSimpleBitcoinVaultStateContract.getAddress()
-            )).to.be.revertedWith("withdrawal transaction must have at least one output and no more than two");
-        });
-
-        it("Should reject withdrawal fulfillment for btc tx that has more than two outputs", async function () {
-            const { utxoLogicHelperContract, mockSimpleBitcoinVaultStateContract, 
-            mockBitcoinKitContract, deployer, notOwner1, notOwner2 } = await loadFixture(deployUTXOHelperWithSupportingContracts);
-
-            await mockBitcoinKitContract.setTransactionByTxId(txid1, withdrawTransactionTooManyOutputs_1);
-            await mockBitcoinKitContract.setTransactionByTxId(txid2, withdrawTransactionTooManyOutputs_2);
-            await mockBitcoinKitContract.setTransactionByTxId(txid3, withdrawTransactionTooManyOutputs_3);
-
-            await expect(utxoLogicHelperContract.checkWithdrawalFinalizationValidity(
-                txid1,
-                0,
-                await mockBitcoinKitContract.getAddress(),
-                emptyHash, // custody script hash is empty
-                sweepUTXO1, // set a real sweep UTXO
-                sweepUTXO1Output,
-                await mockSimpleBitcoinVaultStateContract.getAddress()
-            )).to.be.revertedWith("withdrawal transaction must have at least one output and no more than two");
-
-            await expect(utxoLogicHelperContract.checkWithdrawalFinalizationValidity(
-                txid2,
-                0,
-                await mockBitcoinKitContract.getAddress(),
-                emptyHash, // custody script hash is empty
-                sweepUTXO1, // set a real sweep UTXO
-                sweepUTXO1Output,
-                await mockSimpleBitcoinVaultStateContract.getAddress()
-            )).to.be.revertedWith("withdrawal transaction must have at least one output and no more than two");
-
-            await expect(utxoLogicHelperContract.checkWithdrawalFinalizationValidity(
-                txid3,
-                0,
-                await mockBitcoinKitContract.getAddress(),
-                emptyHash, // custody script hash is empty
-                sweepUTXO1, // set a real sweep UTXO
-                sweepUTXO1Output,
-                await mockSimpleBitcoinVaultStateContract.getAddress()
-            )).to.be.revertedWith("withdrawal transaction must have at least one output and no more than two");
+            )).to.be.revertedWith("withdrawal transaction must have at least two outputs and no more than three");
         });
 
         it("Should reject withdrawal fulfillment for withdrawal that does not exist", async function () {
@@ -2984,12 +3263,12 @@ const {
             await mockBitcoinKitContract.setTransactionByTxId(txid1, withdrawTransactionWithOutputToUser1NoChange_2);
 
             // This withdrawal is for 220000 sats and charges 40000 in fees
-            await mockSimpleBitcoinVaultStateContract.setWithdrawal(3, withdrawalToUser1_1);
+            await mockSimpleBitcoinVaultStateContract.setWithdrawal(4041265344, withdrawalToUser1_1);
 
             [feesOverpaid, feesCollected, withdrawalAmount, createdOutput, outputValue] = 
             await utxoLogicHelperContract.checkWithdrawalFinalizationValidity(
                 txid1,
-                3, // Using withdrawal three in this example, we don't need to set [0,2] because we are just mocking.
+                4041265344, // We don't need to set lower withdrawal indexes because we are just mocking.
                 await mockBitcoinKitContract.getAddress(),
                 custodian1ScriptHash, // use the correct custodian 1
                 sweepUTXO1, // set a real sweep UTXO
@@ -3015,12 +3294,12 @@ const {
             await mockBitcoinKitContract.setTransactionByTxId(txid1, withdrawTransactionWithOutputToUser1NoChange_2);
 
             // This withdrawal is for 200000 sats and charges 20000 in fees
-            await mockSimpleBitcoinVaultStateContract.setWithdrawal(7, withdrawalToUser1_2);
+            await mockSimpleBitcoinVaultStateContract.setWithdrawal(4041265344, withdrawalToUser1_2);
 
             [feesOverpaid, feesCollected, withdrawalAmount, createdOutput, outputValue] = 
             await utxoLogicHelperContract.checkWithdrawalFinalizationValidity(
                 txid1,
-                7, // Using withdrawal seven in this example, we don't need to set [0,6] because we are just mocking.
+                4041265344, // Using withdrawal seven in this example, we don't need to set [0,6] because we are just mocking.
                 await mockBitcoinKitContract.getAddress(),
                 custodian1ScriptHash, // use the correct custodian 1
                 sweepUTXO1, // set a real sweep UTXO
@@ -3046,12 +3325,12 @@ const {
             await mockBitcoinKitContract.setTransactionByTxId(txid1, withdrawTransactionWithOutputToUser1NoChange_2);
 
             // This withdrawal is for 195000 sats and charges 15000 in fees
-            await mockSimpleBitcoinVaultStateContract.setWithdrawal(8, withdrawalToUser1_3);
+            await mockSimpleBitcoinVaultStateContract.setWithdrawal(4041265344, withdrawalToUser1_3);
 
             [feesOverpaid, feesCollected, withdrawalAmount, createdOutput, outputValue] = 
             await utxoLogicHelperContract.checkWithdrawalFinalizationValidity(
                 txid1,
-                8, // Using withdrawal seven in this example, we don't need to set [0,7] because we are just mocking.
+                4041265344, // Using withdrawal seven in this example, we don't need to set [0,7] because we are just mocking.
                 await mockBitcoinKitContract.getAddress(),
                 custodian1ScriptHash, // use the correct custodian 1
                 sweepUTXO1, // set a real sweep UTXO

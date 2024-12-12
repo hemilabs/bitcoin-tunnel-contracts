@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import "./IGlobalVaultConfig.sol";
 import "./IBitcoinVault.sol";
-
 
 /**
  * Interface for a VaultFactory implementation, which allow the creation of a specific type of

@@ -25,6 +25,7 @@ contract GlobalConfig {
     event GlobalConfigAdminUpgradeInitiated(address indexed newGlobalConfigAdmin);
     event GlobalConfigAdminUpgradeCompleted(address indexed newGlobalConfigAdmin);
     event GlobalConfigAdminUpgradeRejected(address indexed newGlobalConfigAdmin);
+    event GlobalConfigAdminUpgradeDelayIncreased(uint256 indexed newDelay);
 
     // Vault factory upgrade events
     event VaultFactoryUpgradeInitiated(address indexed newVaultFactory);
@@ -68,6 +69,7 @@ contract GlobalConfig {
     event BitcoinKitAddrUpgradeInitiated(address indexed newBitcoinKitAddr);
     event BitcoinKitAddrUpgradeCompleted(address indexed newBitcoinKitAddr);
     event BitcoinKitAddrUpgradeRejected(address indexed rejectedBitcoinKitAddr);
+    event BitcoinKitUpgradeDelayIncreased(uint256 indexed newDelay);
 
     /**
      * The onlyGlobalConfigAdmin modifier is used on all functions that should *only* be callable by
@@ -153,7 +155,7 @@ contract GlobalConfig {
     // A mapping storing deprecated vaults. Not used in any of the Bitcoin Tunnel System contracts,
     // only provided for external contracts/services to easily check previous vault factories and
     // the status of each vault that they deployed.
-    mapping(uint32 => IVaultFactory) deprecatedVaultFactories;
+    mapping(uint32 => IVaultFactory) public deprecatedVaultFactories;
 
     // The timestamp at which a new VaultFactory was added by an admin
     uint256 public vaultUpgradeStartTime;
@@ -697,11 +699,16 @@ contract GlobalConfig {
         // When a vault factory upgrade is finalized, deprecate the old vault factory
         vaultFactory.deprecate();
 
+        deprecatedVaultFactories[vaultFactoryUpgradeCount] = vaultFactory;
+
         // Set the vault factory to the new implementation
         vaultFactory = pendingActivationVaultFactory;
         vaultFactory.activateFactory();
         pendingActivationVaultFactory = IVaultFactory(address(0));
         vaultUpgradeStartTime = 0;
+
+        vaultFactoryUpgradeCount++;
+
         emit VaultFactoryUpgradeCompleted(address(vaultFactory));
     }
 
@@ -787,6 +794,8 @@ contract GlobalConfig {
      * Pauses creation of new vaults, only callable by globalConfigAdmin and vaultCreationPauseAdmin
     */
     function pauseVaultCreation() external senderPermissionCheck(vaultCreationPauseAdmin) {
+        require(!vaultPausingPermDisabled, "vault creation pausing is permanently disabled");
+
         // if check so that we don't emit an event if vault creation already paused
         if (!vaultCreationPaused) {
             vaultCreationPaused = true;
@@ -905,7 +914,9 @@ contract GlobalConfig {
      * Pauses withdrawals, only callable by globalConfigAdmin and withdrawalPauseAdmin
     */
     function pauseWithdrawals() external senderPermissionCheck(withdrawalPauseAdmin) {
-        // if check so that we don't emit an event if withdrwaals are already paused
+        require(!withdrawalPausingPermDisabled, "withdrawal pausing is permanently disabled");
+
+        // if check so that we don't emit an event if withdrawals are already paused
         if (!withdrawalsPaused) {
             withdrawalsPaused = true;
             emit WithdrawalsPaused();
@@ -928,6 +939,8 @@ contract GlobalConfig {
      * and withdrawalWhitelistEnableAdmin.
     */
     function enableWithdrawalWhitelist() external senderPermissionCheck(withdrawalWhitelistEnableAdmin) {
+        require(!withdrawalWhitelistingPermDisabled, "vwithdrawal whitelisting is permanently disabled");
+
         if (!withdrawalWhitelistEnabled) {
             withdrawalWhitelist = new AddressWhitelist(address(this));
             withdrawalWhitelistEnabled = true;
@@ -1078,17 +1091,19 @@ contract GlobalConfig {
 
         require(newDelay > bitcoinKitUpgradeDelay, "new delay must be longer than current delay");
         bitcoinKitUpgradeDelay = newDelay;
+
+        emit BitcoinKitUpgradeDelayIncreased(newDelay);
     }
 
     /**
-     * Begins the upgrade process for the globalConfigAdmin address, which sets
-     * pendingActivationBitcoinKitAddr and sets the bitcoinKitUpgradeStartTime to the current time.
+     * Begins the update process for the globalConfigAdmin address, which sets
+     * pendingActivationGlobalConfigAdmin and sets the globalConfigAdminUpgradeStartTime to the current time.
      *
-     * If there is already a pending bitcoinKitAddr upgrade, it will be replaced with this new
-     * IBitcoinKit implementation and the countdown to upgrade activation will be reset (meaning the
-     * previous not-yet-activated IBitcoinKit implmenetation will never become active).
+     * If there is already a pending globalConfigAdmin upgrade, it will be replaced with this new
+     * global config admin and the countdown to upgrade activation will be reset (meaning the
+     * previous not-yet-updated globalConfigAdmin address will never be used).
      * 
-     * @param newGlobalConfigAdminAddr The new IBitcoinKit implementation to upgrade to after the upgrade delay
+     * @param newGlobalConfigAdminAddr The new globalConfigAdmin address to update to after the upgrade delay
     */
     function initiateGlobalConfigAdminUpgrade(address newGlobalConfigAdminAddr) external notZeroAddress(address(newGlobalConfigAdminAddr)) onlyGlobalConfigAdmin {
         require(!globalConfigAdminUpgradePermDisabled, "global config admin upgrade perm disabled");
@@ -1145,5 +1160,7 @@ contract GlobalConfig {
 
         require(newDelay > globalConfigAdminUpgradeDelay, "new delay must be longer than current delay");
         globalConfigAdminUpgradeDelay = newDelay;
+
+        emit GlobalConfigAdminUpgradeDelayIncreased(newDelay);
     }
 }

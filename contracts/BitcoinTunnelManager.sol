@@ -285,7 +285,7 @@ contract BitcoinTunnelManager is CommonStructs {
         require(!globalConfig.withdrawalsPaused(), "withdrawals are paused");
         require(vaultIndex < vaultCounter, "vault does not exist");
 
-        if (globalConfig.vaultCreationWhitelistEnabled()) {
+        if (globalConfig.withdrawalWhitelistEnabled()) {
             require(globalConfig.isAddressPermittedToWithdraw(msg.sender), 
             "withdrawal whitelisting enabled and caller is not whitelisted");
         }
@@ -339,11 +339,11 @@ contract BitcoinTunnelManager is CommonStructs {
     * @return success Whether challenging the withdrawal was successful or not
     */
     function challengeWithdrawal(uint64 uuid, bytes memory extraInfo) external returns (bool success) {
-        uint32 vaultIndex = uint32((uuid & 0xFFFF0000) >> 32);
+        uint32 vaultIndex = uint32((uuid & 0xFFFFFFFF00000000) >> 32);
         require(vaultIndex < vaultCounter, "vault does not exist");
 
         IBitcoinVault vault = vaults[vaultIndex];
-        uint32 vaultSpecificUUID = (uint32(uuid & 0x0000FFFF));
+        uint32 vaultSpecificUUID = (uint32(uuid & 0x00000000FFFFFFFF));
 
         (bool challengeSuccess, uint256 satsToCredit, address originalWithdrawer) = 
         vault.challengeWithdrawal(vaultSpecificUUID, extraInfo);
@@ -373,6 +373,8 @@ contract BitcoinTunnelManager is CommonStructs {
      * @return amountMinted The amount actually minted, which may be smaller than the requested amount if supported by the vault
     */
     function mintOperatorFees(uint32 vaultIndex, uint256 amountToMint) external returns (uint256 amountMinted) {
+        require(vaultIndex < vaultCounter, "vault does not exist");
+
         IBitcoinVault vault = vaults[vaultIndex];
         (bool success, uint256 amountMintable) = vault.mintOperatorFees(msg.sender, amountToMint);
         require(success, "vault does not permit minting the specified amount of assets");

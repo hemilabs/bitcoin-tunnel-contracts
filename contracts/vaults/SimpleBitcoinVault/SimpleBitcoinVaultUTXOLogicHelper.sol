@@ -36,8 +36,6 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         require (!vaultStateChild.isDepositAcknowledged(txid), "txid has already been confirmed");
         require (outputIndex < 8, "output index must be one of the first 8 outputs");
 
-
-
         // The depositor must format the deposit Bitcoin transaction to contain the Bitcoin output
         // corresponding to this vault and the OP_RETURN with their EVM address to credit for the
         // deposit within the number of outputs returned by the BitcoinKit's built-in
@@ -97,6 +95,31 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         return(true, netDepositSats, depositFeeSats, depositor);
     }
 
+    /**
+     * Extracts the first 4 bytes of the OP_RETURN script and converts to uint32 which
+     * should be set by the operator as the vault-specific (32-bit) withdrawal uuid
+     */
+    function extractWithdrawalIndexFromOpReturn(bytes memory opReturnScript) public pure returns (uint32) {
+        // Minimum of two bytes of scaffolding (0x6a + PUSHBYTES), then 4 bytes for uint32
+        require(opReturnScript.length >= 6, "op return script not long enough");
+
+        require(opReturnScript[0] == 0x6a, "not an op_return script");
+
+        // For OP_RETURNs containing 75 bytes or less of extra data, the extra data starts at 3rd byte (index 2)
+        uint8 cursor = 2;
+
+        // Bitcoin has up to OP_PUSHBYTES_75, so if the length of opReturnScript is > 77, there is an extra
+        // byte before the data starts (0x6a + OP_PUSHDATA1 + <LENGTH>)
+        if (opReturnScript.length > 77) {
+            cursor = 3;
+        }
+
+        return (uint32(uint8(opReturnScript[cursor])) << 24) | 
+            (uint32(uint8(opReturnScript[cursor + 1])) << 16) | 
+            (uint32(uint8(opReturnScript[cursor + 2])) << 8) |
+            (uint32(uint8(opReturnScript[cursor + 3])));
+    }
+
     function checkWithdrawalFinalizationValidity(bytes32 txid,
                                                  uint32 withdrawalIndex,
                                                  IBitcoinKit bitcoinKit,
@@ -116,7 +139,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         require(btcTx.inputs.length == 1, "withdrawal transaction must only have one input");
         require(btcTx.inputs[0].inputTxId == currentSweepUTXO && btcTx.inputs[0].sourceIndex == currentSweepUTXOOutput,
         "withdrawal transaction must consume the current sweep utxo");
-        require(btcTx.outputs.length >= 1 && btcTx.outputs.length < 3, "withdrawal transaction must have at least one output and no more than two");
+        require(btcTx.outputs.length >= 2 && btcTx.outputs.length < 4, "withdrawal transaction must have at least two outputs and no more than three");
 
         Withdrawal memory withdrawal = vaultStateChild.getWithdrawal(withdrawalIndex);
         require(withdrawal.amount > 0, "withdrawal does not exist");
@@ -130,13 +153,20 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
 
         uint256 outValue = withdrawalOutput.outValue;
 
-        if (btcTx.outputs.length > 1) {
-            // If the withdrawal transaction has two outputs, the 2nd output is the new sweep.
-            // If the withdrawal transaction has more than two outputs it is invalid.
+        if (btcTx.outputs.length > 2) {
+            // If the withdrawal transaction has three outputs, the 2nd output is the new sweep
+            // and 3rd is the OP_RETURN identifying the withdrawal
+            // If the withdrawal transaction has more than three outputs it is invalid.
 
             // Ensure the 2nd output pays to this vault's address
             require(vaultCustodyScriptHash == keccak256(btcTx.outputs[1].script), 
             "withdrawal transaction has 2nd output but it does not return change to this vault's BTC address");
+
+            require(extractWithdrawalIndexFromOpReturn(btcTx.outputs[2].script) == withdrawalIndex,
+            "extracted withdrawal index from op_return does not match withdrawal index");
+            
+            // Should never happen but check anyway
+            require(btcTx.outputs[2].outValue == 0, "op_return must not have a nonzero output value");
 
             // At this point outValue = withdrawalOutput.outValue = btcTx.outputs[0].outValue
             outValue = outValue + btcTx.outputs[1].outValue;
@@ -170,6 +200,12 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
             //
             // If this occurs, then set the current sweep UTXO to nothing, and the next deposit will
             // set a new sweep as the deposit itself similar to the first deposit to a vault.
+
+            require(extractWithdrawalIndexFromOpReturn(btcTx.outputs[1].script) == withdrawalIndex,
+            "extracted withdrawal index from op_return does not match withdrawal index");
+            
+            // Should never happen but check anyway
+            require(btcTx.outputs[1].outValue == 0, "op_return must not have a nonzero output value");
 
             uint256 btcFeesPaid = btcTx.inputs[0].inValue - outValue;
 
@@ -207,7 +243,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
                                 bytes32 vaultCustodyScriptHash, 
                                 bytes32 currentSweepUTXO, 
                                 uint256 currentSweepUTXOOutput,
-                                SimpleBitcoinVaultState vaultStateChild) external view returns (uint256 sweptValue, uint256 netDepositValue, uint256 newSweepOutputValue, bytes32[] memory sweptDeposits) {
+                                SimpleBitcoinVaultState vaultStateChild) external view returns (int256 sweptValue, uint256 netDepositValue, uint256 newSweepOutputValue, bytes32[] memory sweptDeposits) {
         require(sweepTxId != bytes32(0), "sweep txid cannot be zero");
 
         require(bitcoinKit.transactionExists(sweepTxId), "sweep transaction is not known by hVM");
@@ -215,22 +251,22 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         // Get the actual withdrawal transaction from Bitcoin based on the txid
         Transaction memory btcTx = bitcoinKit.getTransactionByTxId(sweepTxId);
 
-        require(btcTx.totalInputs >= 2 && btcTx.totalInputs <= 8, 
+        require(btcTx.totalInputs >= 2 && btcTx.totalInputs <= 8,
         "a sweep transaction must have at least two inputs and no more than eight");
-        
+
         require(btcTx.totalOutputs == 1, "a sweep transaction must have a single output");
 
         Input memory oldSweep = btcTx.inputs[0];
-        require(oldSweep.inputTxId == currentSweepUTXO && oldSweep.sourceIndex == currentSweepUTXOOutput, 
+        require(oldSweep.inputTxId == currentSweepUTXO && oldSweep.sourceIndex == currentSweepUTXOOutput,
         "first input of sweep must consume old sweep UTXO");
 
-        // Ensures that the output of this sweep goes to the Bitcoin script associated with this 
+        // Ensures that the output of this sweep goes to the Bitcoin script associated with this
         // vault's BTC custodianship address
-        require(vaultCustodyScriptHash == keccak256(btcTx.outputs[0].script), 
+        require(vaultCustodyScriptHash == keccak256(btcTx.outputs[0].script),
         "sweep transaction must output funds to this vault's BTC custodianship address");
 
         uint256 oldSweepValue = btcTx.inputs[0].inValue;
-        
+
         // The value of all swept deposits minus their respective charged fees
         netDepositValue = 0;
 
@@ -239,7 +275,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         uint256 totalFees = 0;
 
         // The deposit txids that are swept to mark as fees collected by caller
-        sweptDeposits = new bytes32[](btcTx.inputs.length - 1);        
+        sweptDeposits = new bytes32[](btcTx.inputs.length - 1);
 
         // Loop through all remaining inputs, checking that they are each a confirmed deposit that
         // has not already been swept
@@ -252,9 +288,9 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
             // depositFee is set to 0.
             require(depositFee > 0, "deposit fee must be greater than zero, either not acknowledged or already swept");
 
-            // Make sure that the input index is the same as the output index of the deposit 
+            // Make sure that the input index is the same as the output index of the deposit
             // transaction that was confirmed
-            require(vaultStateChild.getDepositOutputIndex(depositIn.inputTxId) == depositIn.sourceIndex, 
+            require(vaultStateChild.getDepositOutputIndex(depositIn.inputTxId) == depositIn.sourceIndex,
             "sweep must spend the input using an input index that matches the output index of the confirmed deposit");
 
             uint256 inValue = depositIn.inValue;
@@ -268,7 +304,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         Output memory newSweep = btcTx.outputs[0];
 
         // Calculate the net amount swept as the value of the output minus the original sweep value
-        sweptValue = newSweep.outValue - oldSweepValue;
+        sweptValue = int256(newSweep.outValue) - int256(oldSweepValue);
 
         return (sweptValue, netDepositValue, newSweep.outValue, sweptDeposits);
     }

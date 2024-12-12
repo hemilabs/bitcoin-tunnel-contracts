@@ -2,7 +2,6 @@
 pragma solidity ^0.8.25;
 
 import "../bitcoinkit/IBitcoinKit.sol";
-import "../bitcoinkit/BitcoinKit.sol";
 
 /**
  * Implementation of the IGlobalVaultConfig contract serves to hold all of the configuration
@@ -27,10 +26,10 @@ import "../bitcoinkit/BitcoinKit.sol";
 interface IGlobalVaultConfig {
     // Events which an implementation must emit when the returned value from the respective function
     // has changed.
-    event MinDepositFeesUpdated(uint256 indexed newMinDepositFeeSats, uint256 indexed newMinDepositFeeBasisPoints);
-    event MaxDepositFeesUpdated(uint256 indexed newMaxDepositFeeSats, uint256 indexed newMaxDepositFeeBasisPoints);
-    event MinWithdrawalFeesUpdated(uint256 indexed newMinWithdrawalFeeSats, uint256 indexed newMinWithdrawalFeeBasisPoints);
-    event MaxWithdrawalFeesUpdated(uint256 indexed newMaxWithdrawalFeeSats, uint256 indexed newMaxWithdrawalFeeBasisPoints);
+    event MinDepositFeesUpdated(uint256 newMinDepositFeeSats, uint256 newMinDepositFeeBasisPoints);
+    event MaxDepositFeesUpdated(uint256 newMaxDepositFeeSats, uint256 newMaxDepositFeeBasisPoints);
+    event MinWithdrawalFeesUpdated(uint256 newMinWithdrawalFeeSats, uint256 newMinWithdrawalFeeBasisPoints);
+    event MaxWithdrawalFeesUpdated(uint256 newMaxWithdrawalFeeSats, uint256 newMaxWithdrawalFeeBasisPoints);
     event BitcoinKitContractUpdated(address indexed newBitcoinKitContract);
 
     // Emitted by implementation when all vaults that this global config applies to should be deprecated

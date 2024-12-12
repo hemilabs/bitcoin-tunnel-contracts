@@ -10,9 +10,9 @@ contract BTCToken is ERC20 {
     // Indicates that an unauthorized address attempted to mint tokens
     error MinterAddressNotAuthorized(address invalidMinter);
 
-    address minter;
+    address public minter;
 
-    constructor(address authorizedMinter) ERC20("Bitcoin", "BTC") {
+    constructor(address authorizedMinter) ERC20("HemiBitcoin", "hBTC") {
         if (authorizedMinter == address(0)) {
             revert InvalidAuthorizedMinter(authorizedMinter);
         }

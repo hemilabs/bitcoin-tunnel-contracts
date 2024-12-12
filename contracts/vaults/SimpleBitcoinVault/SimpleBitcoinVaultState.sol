@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
 import "../IBitcoinVault.sol";
 import "./SimpleGlobalVaultConfig.sol";
 import "./SimpleBitcoinVault.sol";
@@ -9,8 +11,9 @@ import "../../oracles/IAssetPriceOracle.sol";
 import "./SimpleBitcoinVaultStructs.sol";
 import "../../BTCToken.sol";
 
+
 /**
- * The SimpleBitcoinVaultState offloads holding and updating much of the state requierd for
+ * The SimpleBitcoinVaultState offloads holding and updating much of the state required for
  * operation of a SimpleBitcoinVault:
  *   - Minimum collateral amount in atomic units (fixed at construction based on config at time)
  *   - Soft and hard collateralization thresholds
@@ -19,12 +22,23 @@ import "../../BTCToken.sol";
  *   - Pending collateral withdrawals
 */
 
-contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
-    event MinDepositFeeSatsUpdated(uint256 indexed newMinDepositFeeSats);
-    event DepositFeeBpsUpdated(uint256 indexed newDepositFeeBps);
+contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
+    event MinDepositFeeSatsUpdated(uint256 newMinDepositFeeSats);
+    event DepositFeeBpsUpdated(uint256 newDepositFeeBps);
 
-    event MinWithdrawalFeeSatsUpdated(uint256 indexed newMinWithdrawalFeeSats);
-    event WithdrawalFeeBpsUpdated(uint256 indexed newWIthdrawalFeeBps);
+    event MinWithdrawalFeeSatsUpdated(uint256 newMinWithdrawalFeeSats);
+    event WithdrawalFeeBpsUpdated(uint256 newWithdrawalFeeBps);
+
+    event SoftCollateralizationThresholdIncreaseInit(uint256 currentThreshold, uint256 newThreshold);
+    event SoftCollateralizationThresholdIncreaseFinalized(uint256 previousThreshold, uint256 newThreshold);
+    event SoftCollateralizationThresholdDecreased(uint256 previousThreshold, uint256 newThreshold);
+
+    event PartialLiquidationStarted(uint256 satsToRepurchase, uint256 startingBid);
+    event PartialLiquidationBid(address indexed bidder, uint256 satsToRepurchase, uint256 newBid);
+    event PartialLiquidationFinalized(address indexed auctionWinner, uint256 satsRepurchased, uint256 finalBid);
+
+    event FullLiquidationStarted(uint256 satsToRepurchase, uint256 startingPricePerBTC);
+    event FullLiquidationCollateralPurchased(address indexed buyer, uint256 satsLiquidated, uint256 collateralSold, uint256 pricePerBTC);
 
     struct PartialLiquidation {
         uint256 amountSatsToRecover;
@@ -81,14 +95,14 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     uint256 public constant WITHDRAWAL_FEE_INCREASE_DELAY_SECONDS = 1 * 60 * 60; // 1 hour
 
     // At most 10 withdrawals can be pending at a time
-    uint256 public constant MAX_WITHDRAWAL_QUEUE_SIZE = 10;
+    uint256 public constant MAX_WITHDRAWAL_ARRAY_SIZE = 10;
 
     // The operatorAdmin is stored here as well as in the parent for efficiency. For many vault
     // administration tasks like modifying soft collateralization thresholds, updating minimum fees,
     // and initiating partial collateral withdrawals, the operator will interact directly with the
     // SimpleBitcoinVaultState contract. An update to operatorAdmin can only be initiated at the
     // SimpleBitcoinVault level which will call the update function here to perform the
-    // corersponding update.
+    // corresponding update.
     address public operatorAdmin;
 
     // The SimpleBitcoinVault that this SimpleBitcoinVaultState holds and updates state for
@@ -161,11 +175,15 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     // maintained so that an invalid outgoing transaction from the vault can be cross-referenced
     // against a bounded number of pending withdrawals, rather than requiring a challenge-response
     // system.
-    Withdrawal[MAX_WITHDRAWAL_QUEUE_SIZE] pendingWithdrawals;
+    Withdrawal[MAX_WITHDRAWAL_ARRAY_SIZE] pendingWithdrawals;
 
     // All of the withdrawals by UUID mapped to the TxID that fulfilled them, or if not yet
     // fulfilled to bytes32(0).
     mapping(uint32 => bytes32) public withdrawalsToStatus;
+
+    // All of the withdrawals by UUID mapped to a boolean of whether they have already been
+    // successfully challenged.
+    mapping(uint32 => bool) public withdrawalsChallenged;
 
     // All of the txids which have been successfully recognized as valid withdrawal fulfillments
     mapping(bytes32 => bool) public acknowledgedWithdrawalTxids;
@@ -186,6 +204,10 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
 
     // The total BTC deposits in sats this vault currently holds
     uint256 totalDepositsHeld;
+
+    // The amount of hBTC reserves the operator has posted during a full liquidation to prevent
+    // future confirmations within the grace period from permitting collateral liquidation
+    uint256 fullLiquidationOperatorReserves;
 
     // All the BTC TxIDs of successfully credited deposits
     mapping(bytes32 => bool) public acknowledgedDeposits;
@@ -243,6 +265,13 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         btcTokenContract = _btcTokenContract;
         operatorAdmin = _operatorAdmin;
 
+        minDepositFeeSats = _vaultConfig.getMinDepositFeeSats();
+        depositFeeBps = _vaultConfig.getMinDepositFeeBasisPoints();
+        minWithdrawalFeeSats = _vaultConfig.getMinWithdrawalFeeSats();
+        withdrawalFeeBps = _vaultConfig.getMinWithdrawalFeeBasisPoints();
+
+
+
         softCollateralizationThreshold = _vaultConfig.getSoftCollateralizationThreshold();
         hardCollateralizationThreshold = _vaultConfig.getHardCollateralizationThreshold();
     }
@@ -252,7 +281,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      *
      * @return _parentVault The parent SimpleBitcoinVault that this child SimpleBitcoinVaultState manages state for.
     */
-    function getParentSimpleBitcoinVault() external view returns (SimpleBitcoinVault _parentVault) {
+    function getParentSimpleBitcoinVault() external view returns (SimpleBitcoinVault) {
         return parentVault;
     }
 
@@ -285,7 +314,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * If the threshold is being decreased (meaning the vault can custody more BTC) then the change goes
      * into effect immediately.
      *
-     * If the threshold is being increaesd (meaning the vault can custody less BTC) then the change is
+     * If the threshold is being increased (meaning the vault can custody less BTC) then the change is
      * queued and must be finalized later after the soft collateralization threshold increase delay has
      * elapsed, otherwise the change could unfairly effect pending deposits made based on the previous
      * higher amount of BTC the vault was able to custody.
@@ -303,6 +332,9 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         }
 
         if (newSoftCollateralizationThreshold < softCollateralizationThreshold) {
+            // For event
+             uint256 previous = softCollateralizationThreshold;
+
             // The threshold is being lowered which increases the deposits this vault can accept,
             // so can be applied immediately as it does not affect in-progress user deposits.
              softCollateralizationThreshold = newSoftCollateralizationThreshold;
@@ -310,11 +342,14 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
              // Clear any other pending update
              pendingSoftCollateralizationThreshold = 0;
              pendingSoftCollateralizationThresholdUpdateTime = 0;
+
+             emit SoftCollateralizationThresholdDecreased(previous, softCollateralizationThreshold);
         } else {
             // The threshold is being raised, which lowers the deposits this vault can accept,
             // so has to be applied after an activation period.
             pendingSoftCollateralizationThreshold = newSoftCollateralizationThreshold;
             pendingSoftCollateralizationThresholdUpdateTime = block.timestamp;
+            emit SoftCollateralizationThresholdIncreaseInit(softCollateralizationThreshold, pendingSoftCollateralizationThreshold);
         }
     }
 
@@ -332,7 +367,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * threshold will still be in force during the activation delay. Once activated, the updated
      * soft collateralization threshold is applied to new deposits, but requires withdrawals or
      * additional collateral deposits to bring the vault down to the operator's desired true
-     * collateralzation utilization.
+     * collateralization utilization.
     */
     function finalizeSoftCollateralizationThresholdUpdate() external {
         require(pendingSoftCollateralizationThresholdUpdateTime != 0, "no pending soft collateralization update is in progress");
@@ -341,12 +376,17 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         "not enough time has elapsed for collateralization threshold increase");
 
         // Check again for extra protection, should never be possible.
-        require(pendingSoftCollateralizationThreshold > vaultConfig.getSoftCollateralizationThreshold(),
+        require(pendingSoftCollateralizationThreshold >= vaultConfig.getSoftCollateralizationThreshold(),
          "new soft collateralization threshold must be higher than or equal to minimum from config");
 
-         softCollateralizationThreshold = pendingSoftCollateralizationThreshold;
-         pendingSoftCollateralizationThresholdUpdateTime = 0;
-         pendingSoftCollateralizationThreshold = 0;
+        // For event
+        uint256 previous = softCollateralizationThreshold;
+
+        softCollateralizationThreshold = pendingSoftCollateralizationThreshold;
+        pendingSoftCollateralizationThresholdUpdateTime = 0;
+        pendingSoftCollateralizationThreshold = 0;
+
+        emit SoftCollateralizationThresholdIncreaseFinalized(previous, softCollateralizationThreshold);
     }
 
     /**
@@ -641,7 +681,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @return pendingWithdrawalAmount How much is pending withdrawals in sats
     */
     function internalInitializeWithdrawal(uint256 amount, uint256 fee, uint256 timestampRequested, bytes memory destinationScript, address evmOriginator) external onlyParentVault returns (uint32 withdrawalNum, uint256 pendingWithdrawalAmount) {
-        require(pendingWithdrawalCount < MAX_WITHDRAWAL_QUEUE_SIZE, 
+        require(pendingWithdrawalCount < MAX_WITHDRAWAL_ARRAY_SIZE, 
         "there are too many pending withdrawals in this vault");
 
         Withdrawal memory withdrawal = Withdrawal(withdrawalCounter, 
@@ -651,7 +691,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         pendingWithdrawalAmountSat += amount;
         withdrawalCounter++;
         pendingWithdrawalCount++;
-        saveWithdrawalInQueue(withdrawal);
+        saveWithdrawalInPendingArray(withdrawal);
         return (withdrawalCounter - 1, pendingWithdrawalAmountSat);
     }
 
@@ -660,25 +700,27 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
       * 
       * @param withdrawal The withdrawal to save in pending withdrawals
       * 
-      * @return index The index in the pending withdrawals array where the withdrawal was saved
+      * @return The index in the pending withdrawals array where the withdrawal was saved
      */
-    function saveWithdrawalInQueue(Withdrawal memory withdrawal) private returns (uint32 index) {
-        for (uint32 i = 0; i < MAX_WITHDRAWAL_QUEUE_SIZE; i++) {
+    function saveWithdrawalInPendingArray(Withdrawal memory withdrawal) private returns (uint32) {
+        for (uint32 i = 0; i < MAX_WITHDRAWAL_ARRAY_SIZE; i++) {
             // Amount can only be zero when the index returns a 0-value struct (does not exist).
             if (pendingWithdrawals[i].amount == 0) {
                 pendingWithdrawals[i] = withdrawal;
                 return i;
             }
         }
+        revert("no room in pending withdrawals array to save new withdrawal");
     }
 
     /**
-      * Removes a withdrawal, identified by the withdrawal's unique counter/uuid from the queue.
+      * Removes a withdrawal, identified by the withdrawal's unique counter/uuid from the pending
+      * withdrawals array.
       * 
       * @param uniqueWithdrawalCounter The unique counter of the withdrawal to remove
      */
-    function removeWithdrawalFromQueue(uint32 uniqueWithdrawalCounter) private {
-        for (uint32 i = 0; i < MAX_WITHDRAWAL_QUEUE_SIZE; i++) {
+    function removeWithdrawalFromPendingArray(uint32 uniqueWithdrawalCounter) private {
+        for (uint32 i = 0; i < MAX_WITHDRAWAL_ARRAY_SIZE; i++) {
             if (pendingWithdrawals[i].withdrawalCounter == uniqueWithdrawalCounter) {
                 delete(pendingWithdrawals[i]);
                 return;
@@ -686,8 +728,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         }
 
         // This should be impossible as this function is only called once per withdrawal which must
-        // be already in the queue
-        revert("unable to remove withdrawal from queue");
+        // be already in the array
+        revert("unable to remove withdrawal from pending withdrawals array");
     }
 
     /**
@@ -701,7 +743,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @return matchFound Whether the scriptHash and outputAmount match at least one pending withdrawal
     */
     function checkPendingWithdrawalsForMatch(bytes32 scriptHash, uint256 outputAmount) external view returns (bool matchFound) {
-        for (uint32 i = 0; i < MAX_WITHDRAWAL_QUEUE_SIZE; i++) {
+        for (uint32 i = 0; i < MAX_WITHDRAWAL_ARRAY_SIZE; i++) {
             Withdrawal memory toCheck = pendingWithdrawals[i];
             if (toCheck.amount != 0) {
                 // This is an actual withdrawal, not an empty withdrawal struct.
@@ -730,7 +772,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      *
      * @param uuid The UUID of the withdrawal to return
      *
-     * @return storedWithdrawal The withdrawal stored at that index. If the withdrawal does not exist, will return a zero-filled struct.
+     * @return storedWithdrawal The withdrawal stored at that index. If the withdrawal does not exist, will revert.
     */
     function getWithdrawal(uint32 uuid) external view returns (Withdrawal memory storedWithdrawal) {
         require(uuid < withdrawalCounter, "withdrawal does not exist");
@@ -757,8 +799,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         withdrawalsToStatus[uuid] = fulfillmentTxId;
         acknowledgedWithdrawalTxids[fulfillmentTxId] = true;
 
-        // Remove the withdrawal from the pending withdrawals queue
-        removeWithdrawalFromQueue(uuid);
+        // Remove the withdrawal from the pending withdrawals array
+        removeWithdrawalFromPendingArray(uuid);
 
         // Decrease the amount of sats pending withdrawal by the withdrawal amount (including paid
         // fees)
@@ -767,6 +809,10 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         // Decrease the total deposits held by this vault on behalf of the protocol by the
         // withdrawal amount (including paid fees)
         totalDepositsHeld -= withdrawalAmount;
+    }
+
+    function saveSuccessfulWithdrawalChallenge(uint32 uuid) external onlyParentVault {
+        withdrawalsChallenged[uuid] = true;
     }
 
     /**
@@ -788,6 +834,11 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * because the operator has not yet communicated it to this contract, which is expected
      * behavior.
      * 
+     * Also note that this will return false if the corresponding withdrawal was *not* fulfilled
+     * by a Bitcoin transaction but *was* already successfully challanged, so this function should
+     * not be used alone for determining whether a withdrawal that was unfulfilled was already
+     * challenged and had hBTC re-minted.
+     * 
      * @return isFulfilled Whether the withdrawal identified by UUID has been fulfilled with a Bitcoin transaction
     */
     function isWithdrawalFulfilled(uint32 uuid) external view returns (bool isFulfilled) {
@@ -796,11 +847,24 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     }
 
     /**
+     * Determines whether a withdrawal has already been marked as successfully challenged.
+     * Callable by anyone as this does not mutute any state. Will return false even for withdrawals
+     * that do not exist (uuid refers to a withdrawal that has not been created).
+     * 
+     * Note that this function does not check whether the transaction *can* be challenged,
+     * only whether a successful challenge has been successfully fulfilled due to this
+     * withdrawal not being processed by the Operator within the permitted time window.
+     */
+    function isWithdrawalAlreadyChallenged(uint32 uuid) external view returns (bool isChallenged) {
+        return withdrawalsChallenged[uuid];
+    }
+
+    /**
      * Processes a decrease in totalDepositsHeld due to operator burning hBTC
      * 
      * @param amount The amount of hBTC that the operator burnt which should be removed from totalDepositsHeld
     */
-    function decreaseTotalDepositsHeldFromOperatorBurning(uint256 amount) public onlyParentVault {
+    function decreaseTotalDepositsHeldFromOperatorBurning(uint256 amount) private {
         require(amount <= totalDepositsHeld, "cannot decrease totalDepositsHeld by more than its entire value");
         totalDepositsHeld -= amount;
     }
@@ -830,13 +894,32 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
 
     /**
      * Increases the total deposits (in sats) held by this vault on behalf of the protocol.
+     * If the vault is in a full liquidation, then check the operator's reserves and decrease
+     * those first before increasing the total deposits held.
      * 
      * Only callable by the parent owner SimpleBitcoinVault.
      * 
      * @param increase Amount to increase total deposits held by
     */
     function increaseTotalDepositsHeld(uint256 increase) external onlyParentVault {
-        totalDepositsHeld = totalDepositsHeld + increase;
+        if (isFullLiquidationStarted()) {
+            if (fullLiquidationOperatorReserves > 0) {
+                // Decrease reserves first
+                if (increase <= fullLiquidationOperatorReserves) {
+                    fullLiquidationOperatorReserves = fullLiquidationOperatorReserves - increase;
+                    return;
+                } else {
+                    // Increase is more than reserves, so first remove from reserves and then
+                    // credit remaining to totalDepositsHeld
+                    uint256 excessAfterReserves = increase - fullLiquidationOperatorReserves;
+                    fullLiquidationOperatorReserves = 0;
+                    totalDepositsHeld = totalDepositsHeld + excessAfterReserves;
+                }
+            }
+        } else {
+            // Vault is not currently in a full liquidation, so no need to check reserves.
+            totalDepositsHeld = totalDepositsHeld + increase;
+        }
     }
 
     /**
@@ -897,7 +980,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * 
      * @return collateralWithdrawalAllowed Whether the operator can initiate a new collateral withdrawal
     */
-    function canOperatorInitiateCollateralWithdraw() external view returns (bool collateralWithdrawalAllowed) {
+    function canOperatorInitiateCollateralWithdraw() public view returns (bool collateralWithdrawalAllowed) {
         if (isPendingPartialCollateralWithdrawal()) {
             return false; // Cannot withdraw collateral if a partial collateral withdrawal is already in progress
         }
@@ -912,7 +995,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
             if (fullLiquidationDone) {
                  return true;
             } else {
-            return false; // Cannot withdraw collateral if a full liquidation is allowed/started but not completed
+                return false; // Cannot withdraw collateral if a full liquidation is allowed/started but not completed
             }
         }
 
@@ -952,7 +1035,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @return freeCollateralAtomicUnits The amount of free collateral in atomic units
     */
     function getFreeCollateral() public view returns (uint256 freeCollateralAtomicUnits) {
-        uint256 utilizedCollateral = getUtilizedCollateral();
+        uint256 utilizedCollateral = getUtilizedCollateralSoft();
 
         // Calculate the remaining collateral if the operator's full pendingCollateralWithdrawal is
         // accepted
@@ -970,6 +1053,29 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         return conservativeTotalCollateral - utilizedCollateral;
     }
 
+    /**
+     * Determines whether an additional deposit of depositAmount will result in exceeding the
+     * soft collateralization threshold for deposit acceptance. Does not take into account
+     * pending collateral withdrawals as accepting a deposit will change the utilized collateral
+     * which will change the actual permitted collateral withdrawal amount.
+     * 
+     * @param depositAmount Additional deposit amount in satoshis
+     * 
+     * @return exceedsCollateral Whether the additional deposit would result in exceeding the 
+     *                           soft collateralization threshold.
+     */
+    function doesDepositExceedSoftCollateralThreshold(uint256 depositAmount) public view returns (bool exceedsCollateral) {
+        uint256 simulatedDepositsHeld = totalDepositsHeld + depositAmount;
+
+        // Calculate how much collateral would be required to accept the deposit
+        // at the soft collateralization threshold
+        uint256 simulatedUtilizedCollateral = calculateCollateralUtilization(simulatedDepositsHeld, softCollateralizationThreshold);
+
+        // If the amount of utilized collateral assuming the deposit was accepted
+        // exceeds the deposited collateral balance, then the deposit cannot
+        // be accepted.
+        return (simulatedUtilizedCollateral > depositedCollateralBalance);
+    }
 
     /**
      * Calculate how much of the current collateral is utilized to maintain the current active
@@ -985,20 +1091,15 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      *   - The vault must keep 5 * 10_000_000 * 130 / 100 = 65_000_000 units of collateral
      *     (note that this is 6.5 BTC worth of collateral, and 6.5/5 = 1.3 which corresponds
      *     to the softCollateralizationThreshold of 130 (%)).
+     * 
+     * @return utilizedCollateralAtomicUnits The amount of atomic units of collateral that are utilized
     */
-    function getUtilizedCollateral() public view returns (uint256 utilizedCollateralAtomicUnits) {
-        IAssetPriceOracle oracle = vaultConfig.getPriceOracle();
-        // deposits held (in sats) times quantity of collateral in atomic units for 1 BTC times the
-        // soft collateralization threshold, divided by 100 since the collateralization threshold is
-        // a percentage (ex: 130 = 130%), divided by 100_000_000 to cancel out the price being
-        // denominated in Bitcoin.
-        uint256 utilizedCollateral = ((totalDepositsHeld * oracle.getAssetQuantityToBTC() * softCollateralizationThreshold) / 100) / 100_000_000;
+    function getUtilizedCollateralSoft() public view returns (uint256 utilizedCollateralAtomicUnits) {
+        uint256 utilizedCollateral = calculateCollateralUtilization(totalDepositsHeld, softCollateralizationThreshold);
 
-        // If this happens, it means the vault is undercollateralized, and a liquidation might not
-        // ensure vault solvency.
-        //
-        // The incentives for liquidation should prevent this from happening except in the most
-        // extreme cases of rapid negative price movement of the collateral value relative to BTC.
+        // If the utilized collateral (calculated at the soft collateralization threshold) is 
+        // more than the deposited collateral balance, then it means the vault is undercollateralized
+        // considering the soft collateralization threshold.
         //
         // If this does occur, no action is taken in this function, but since only the total
         // deposited collateral balance could be "utilized", return that value instead.
@@ -1007,6 +1108,22 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         }
 
         return utilizedCollateral;
+    }
+
+    /**
+     * An internal utility method to calculate collateral utilization based on a specific
+     * totalDeposits value (which can either be the current totalDepositsHeld value or a simulated
+     * value) along with a collateralization ratio.
+     * 
+     * @param totalDeposits The amount of BTC deposits in atomic units (sats)
+     */
+    function calculateCollateralUtilization(uint256 totalDeposits, uint256 collateralizationRatio) internal view returns (uint256 utilizedCollateralAtomicUnits) {
+        IAssetPriceOracle oracle = vaultConfig.getPriceOracle();
+        // deposits held (in sats) times quantity of collateral in atomic units for 1 BTC times the
+        // soft collateralization threshold, divided by 100 since the collateralization threshold is
+        // a percentage (ex: 130 = 130%), divided by 100_000_000 to cancel out the price being
+        // denominated in Bitcoin rather than sats.
+        return ((totalDeposits * oracle.getAssetQuantityToBTC() * collateralizationRatio) / 100) / 100_000_000;
     }
 
 
@@ -1055,22 +1172,23 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * value) there are only 55_000 units available, then if the operator specified a quantity >=
      * 55_000, they would only be able to withdraw 55_000 during finalization.
      * 
-     * @param desiredWithdrawalAmount The amount of collateral the operator wants to withdaw, in atomic units
+     * @param desiredWithdrawalAmount The amount of collateral the operator wants to withdraw, in atomic units
      * 
     */
     function initiatePartialCollateralWithdrawal(uint256 desiredWithdrawalAmount) external onlyOperatorAdmin {
         // Cannot withdraw zero atomic units
         require(desiredWithdrawalAmount > 0, "withdrawal amount must not be zero");
 
-        // Ensure there is not already a pending withdrawal
-        require(!isPendingPartialCollateralWithdrawal(), "cannot initiate a partial collateral withdrawal when one is already pending");
+        require(canOperatorInitiateCollateralWithdraw(), "operator cannot initiate collateral withdraw");
 
-        uint256 freeCollateral = getFreeCollateral();
+        // Calculate free collateral as the current deposited collateral minus the amount of
+        // collateral currently required to fulfill the soft collateralization threshold
+        uint256 freeCollateral = depositedCollateralBalance - getUtilizedCollateralSoft();
 
         // Ensure that the desired withdrawal amount does not exceed the amount
         // of free collateral currently available in the vault.
         // This behavior could be loosened to allow larger requests that will
-        // be eventually be modified based on the actual free collateral available
+        // eventually be modified based on the actual free collateral available
         // at withdrawal finalization.
         require(desiredWithdrawalAmount <= freeCollateral, "desired withdrawal amount must be less than free collateral");
 
@@ -1086,14 +1204,14 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      *   - The *current* available collateral under the soft collateralization threshold, OR
      *   - The originally requested withdrawal amount
     */
-    function finalizePartialCollateralWithdrawal() external onlyOperatorAdmin {
+    function finalizePartialCollateralWithdrawal() onlyOperatorAdmin nonReentrant external {
         // Cannot perform a partial collateral withdrawal unless one has already been initiated
         require(isPendingPartialCollateralWithdrawal(), "there is no pending collateral withdrawal to finalize");
 
         // Cannot perform a partial collateral withdrawal if a partial liquidation is in progress or
         // could be triggered
-        require(!partialLiquidationInProgress && (pendingPartialLiquidationSats > 0), 
-        "there is a partial liquidation authorized or in progress");
+        require(!partialLiquidationInProgress, "there is a partial liquidation in progress");
+        require(pendingPartialLiquidationSats == 0, "there is a partial liquidation authorized");
 
         // Cannot perform a partial collateral withdrawal if a full liquidation is active.
         // fullLiquidationAllowed should never be false if fullLiquidationStarted is true, but check
@@ -1138,7 +1256,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * The liquidation must run for at least 4 hours (FULL_LIQUIDATION_DEPOSIT_GRACE_PERIOD) to
      * allow any straggler deposits to be processed and the corresponding hBTC also liquidated.
     */
-    function beginFullCollateralLiquidation() external {
+    function beginFullCollateralLiquidation() nonReentrant external {
         // First, check the collateralization ratio
         IAssetPriceOracle oracle = vaultConfig.getPriceOracle();
         uint256 collateralUnitsToBTC = oracle.getAssetQuantityToBTC();
@@ -1151,16 +1269,26 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
             uint256 collateralCostOfDepositedBTC = collateralUnitsToBTC * totalDepositsHeld / 100_000_000; 
 
             uint256 collateralRatio = (depositedCollateralBalance * 100) / collateralCostOfDepositedBTC;
-            if (collateralRatio >= vaultConfig.getHardCollateralizationThreshold()) {
-                revert("no operator misbheavior and hard collateral threshold has not been surpassed");
+            if (collateralRatio >= hardCollateralizationThreshold) {
+                revert("no operator misbehavior and hard collateral threshold has not been surpassed");
             }
             fullLiquidationAllowed = true;
         }
 
+        // Either full liquidation was already allowed, or was just set above by collateral ratio check
+        require(fullLiquidationAllowed, "full liquidation is not allowed");
+
         // Check if a partial liquidation is in progress, and if so stop it and return held bid funds
         if (partialLiquidationInProgress) {
-                PartialLiquidation memory pl = partialLiquidationStatus[partialLiquidationCounter - 1];
-                btcTokenContract.transferFrom(address(this), pl.currentBidder, pl.amountSatsToRecover);
+                PartialLiquidation storage pl = partialLiquidationStatus[partialLiquidationCounter - 1];
+
+                bool success = btcTokenContract.transfer(pl.currentBidder, pl.amountSatsToRecover);
+                if (!success) {
+                    // This should be impossible but if it does happen, then revert here and wait for
+                    // the partial collateral bid to win, after which full liquidation will be possible.
+                    revert("unable to transfer hBTC to previous bidder");
+                }
+
                 pl.finished = true;
                 partialLiquidationInProgress = false;
         }
@@ -1170,6 +1298,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         fullLiquidationStarted = true;
         fullLiquidationStartTime = block.timestamp;
         fullLiquidationStartingPrice = (collateralUnitsToBTC * 105) / 100;
+
+        emit FullLiquidationStarted(totalDepositsHeld, fullLiquidationStartingPrice);
     }
 
 
@@ -1211,7 +1341,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @param maxAcceptanceTimestamp The timestamp after which this bid is invalid
      * 
     */
-    function beginPartialLiquidation(uint256 startingBid, uint256 hBTCQuantity, uint256 maxAcceptanceTimestamp) external {
+    function beginPartialLiquidation(uint256 startingBid, uint256 hBTCQuantity, uint256 maxAcceptanceTimestamp) nonReentrant external {
         require(!partialLiquidationInProgress, 
         "there is already a partial liquidation in progress");
 
@@ -1233,7 +1363,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
             require(previousLiquidation.finished, "a partial liquidation is already in progress");
         }
 
-        // Transfer the spedified amount of hBTC to this contract to submit a bona-fide bid
+        // Transfer the specified amount of hBTC to this contract to submit a bona-fide bid
         bool transferResult = btcTokenContract.transferFrom(msg.sender, address(this), hBTCQuantity);
         require(transferResult, "specified hBTC could not be collected");
 
@@ -1252,6 +1382,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
 
         // A partial liquidation is now in progress
         partialLiquidationInProgress = true;
+
+        emit PartialLiquidationStarted(hBTCQuantity, startingBid);
     }
 
     /**
@@ -1265,7 +1397,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @param hBTCQuantity The  amount of hBTC the bidder will purchase (must match the amount to be liquidated)
      * @param maxAcceptanceTimestamp The timestamp after which this bid is invalid
     */
-    function bidOnPartialCollateralLiquidation(uint256 newBid, uint256 hBTCQuantity, uint256 maxAcceptanceTimestamp) external {
+    function bidOnPartialCollateralLiquidation(uint256 newBid, uint256 hBTCQuantity, uint256 maxAcceptanceTimestamp) nonReentrant external {
         require(partialLiquidationInProgress, "no partial liquidation is in progress");
 
         require(block.timestamp <= maxAcceptanceTimestamp, 
@@ -1277,7 +1409,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         require(newBid < pl.currentBidAmount, "new bid is not low enough");
         require(hBTCQuantity == pl.amountSatsToRecover, "amount of hBTC is incorrect");
 
-        // Transfer the spedified amount of hBTC to this contract to submit a bona-fide bid
+        // Transfer the specified amount of hBTC to this contract to submit a bona-fide bid
 
         bool transferResult = btcTokenContract.transferFrom(msg.sender, address(this), hBTCQuantity);
         require(transferResult, "specified hBTC count could not be collected");
@@ -1286,13 +1418,16 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         bool returnTransferResult = btcTokenContract.transfer(pl.currentBidder, hBTCQuantity);
 
         // This should be impossible, as this vault should always have sufficient hBTC which was
-        // sent by the previous bidder that we are returning.
+        // sent by the previous bidder that we are returning. If this fails, then the new bid
+        // will not be accepted and the current bid will win.
         require(returnTransferResult, 
         "specified hBTC could not be returned to previous bidder"); 
 
         pl.currentBidAmount = newBid;
         pl.currentBidTime = block.timestamp;
         pl.currentBidder = msg.sender;
+
+        emit PartialLiquidationBid(msg.sender, hBTCQuantity, newBid);
     }
 
     /**
@@ -1303,7 +1438,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * Callable by anyone, but in practice only the winning bidder generally has a reason to
      * call this function and finalize the bid.
     */
-    function finalizePartialCollateralLiquidation() external {
+    function finalizePartialCollateralLiquidation() nonReentrant external {
         require(partialLiquidationInProgress, "no partial liquidation is in progress");
 
         PartialLiquidation memory pl = partialLiquidationStatus[partialLiquidationCounter - 1];
@@ -1313,9 +1448,29 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         require(pl.currentBidTime + PARTIAL_LIQUIDATION_BID_TIME <= block.timestamp, 
         "bid is not old enough");
 
+        // First, transfer the collateral to the highest bidder
+        bool collateralTransferSuccess = vaultConfig.getPermittedCollateralAssetContract().transfer(pl.currentBidder, pl.currentBidAmount);
+        if (!collateralTransferSuccess) {
+            // This should be impossible and indicates a critical issue like not enough
+            // collateral existing in the vault to pay the bidder, if this happens
+            // then attempt to return the hBTC that was bid and finish the partial
+            // liquidation without decreasing the total deposits held.
+            bool returnSuccess = btcTokenContract.transfer(pl.currentBidder, pl.amountSatsToRecover);
+            if (!returnSuccess) {
+                // Vault was unable to pay the bidder with collateral and was unable
+                // to return the hBTC that was used to bid. This should be impossible.
+                revert("unable to transfer collateral to bidder or process a refund");
+            } else {
+                // Mark partial collateral liquidation as done, but do not decrease
+                // total deposits held.
+                pl.finished = true;
+                partialLiquidationInProgress = false;
+            }
+        }
+
         // Transfer the hBTC to burn to the parent vault who can call the burn method on
         // BitcoinTunnelManager
-        bool intermediateTransferResult = btcTokenContract.transferFrom(address(this), address(parentVault), pl.amountSatsToRecover);
+        bool intermediateTransferResult = btcTokenContract.transfer(address(parentVault), pl.amountSatsToRecover);
 
         require(intermediateTransferResult, 
         "unable to transfer hBTC to burn to the parent contract");
@@ -1325,11 +1480,12 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         // Decrease the total BTC deposits held by this vault by the amount that was burnt
         totalDepositsHeld = totalDepositsHeld - pl.amountSatsToRecover;
 
-        vaultConfig.getPermittedCollateralAssetContract().transfer(pl.currentBidder, pl.currentBidAmount);
         depositedCollateralBalance = depositedCollateralBalance - pl.currentBidAmount;
 
         pl.finished = true;
         partialLiquidationInProgress = false;
+
+        emit PartialLiquidationFinalized(pl.currentBidder, pl.amountSatsToRecover, pl.currentBidAmount);
     }
 
     /**
@@ -1341,7 +1497,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @param hBTCQuantity The quantity of hBTC the buyer wants to sell in exchange for collateral at the current price
      * @param recipient The recipient of the collateral. Optional, if not provided will default to msg.sender.
     */
-    function purchaseCollateralDuringFullLiquidation(uint256 hBTCQuantity, address recipient) external {
+    function purchaseCollateralDuringFullLiquidation(uint256 hBTCQuantity, address recipient) nonReentrant external {
         require(fullLiquidationStarted, "there is not an ongoing liquidation");
         require(totalDepositsHeld > 0, "there are no deposits to bid on currently");
 
@@ -1354,14 +1510,14 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
             hBTCQuantity = totalDepositsHeld;
         }
 
-        // First transfer hBTC from the buyer to this contract, then to the parent which can burn it.
+        // First, transfer hBTC from the buyer to this contract, then to the parent which can burn it.
         // We do not permit a direct call to a BitcoinTunnelManager function which can burn to ensure that a
         // vault implementation could not burn hBTC in an unauthorized manner.
         bool hBTCDepositSuccess = btcTokenContract.transferFrom(msg.sender, address(this), hBTCQuantity);
         require(hBTCDepositSuccess, "unable to transfer the specified amount of hBTC from the caller");
 
         // Transfer the hBTC to burn to the parent vault who can call the burn method on BitcoinTunnelManager
-        bool intermediateTransferResult = btcTokenContract.transferFrom(address(this), address(parentVault), hBTCQuantity);
+        bool intermediateTransferResult = btcTokenContract.transfer(address(parentVault), hBTCQuantity);
         require(intermediateTransferResult, "unable to transfer hBTC to burn to the parent contract");
         parentVault.burnLiquidatedBTC(hBTCQuantity);
 
@@ -1374,9 +1530,10 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         depositedCollateralBalance = depositedCollateralBalance - collateralAmountOfSale;
         totalDepositsHeld = totalDepositsHeld - hBTCQuantity;
 
-        // Not setting the vault to closed yet, because we could be still within the full liquidation
+        // Not setting the vault to closed here, because we could be still within the full liquidation
         // grace period meaning more deposits could be accepted which would require further liquidation.
         // Operator must close the vault themselves which will check that condition.
+        emit FullLiquidationCollateralPurchased(msg.sender, hBTCQuantity, collateralAmountOfSale, currentPricePerBTC);
     }
 
     /**
@@ -1387,7 +1544,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     */
     function getCurrentFullLiquidationCollateralPrice() public view returns (uint256 collateralAtomicUnitsPerBTC) {
         uint256 secondsSinceLiquidationStart = block.timestamp - fullLiquidationStartTime;
-        uint256 increasePerPeriod = (fullLiquidationStartingPrice * FULL_LIQUIDATION_INCREASE_INCREMENT_BPS / 10000) - fullLiquidationStartingPrice;
+        uint256 increasePerPeriod = ((fullLiquidationStartingPrice * FULL_LIQUIDATION_INCREASE_INCREMENT_BPS) / 10000);
         uint256 incrementPeriods = secondsSinceLiquidationStart / FULL_LIQUIDATION_INCREASE_TIME;
 
         return fullLiquidationStartingPrice + (increasePerPeriod * incrementPeriods);
@@ -1440,17 +1597,34 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @return remainingFees The fees remaining after counting fees against any pending partial liquidations
     */
     function processCollectedFeesToDecrementPartialPendingLiquidation(uint256 fees) public onlyParentVault returns (uint256 remainingFees) {
+        return permissionedDecrementPartialPendingLiquidationImpl(fees);
+    }
+
+
+    /**
+     * Decreases the partial pending liquidation sats by up to the provided amount in sats, returning
+     * any excess sats which were left over beyond the total pendingPartialLiquidationSats if applicable.
+     * 
+     * Private and only callable by functions in this contract which themselves must guard to make sure
+     * the reduction is appropriately authorized.
+     * 
+     * @param maxReduction The maximum number of satoshis to reduce the partial pending liquidation by
+     * 
+     * @return unused The remaining sats if any above and beyond what was required to zero out the partial
+     *                pending liquidation
+     */
+    function permissionedDecrementPartialPendingLiquidationImpl(uint256 maxReduction) private returns (uint256 unused) {
         if (pendingPartialLiquidationSats > 0) {
-            if (fees > pendingPartialLiquidationSats) {
+            if (maxReduction > pendingPartialLiquidationSats) {
                 uint256 temp = pendingPartialLiquidationSats;
                 pendingPartialLiquidationSats = 0;
-                return fees - temp;
+                return maxReduction - temp;
             } else {
-                pendingPartialLiquidationSats = pendingPartialLiquidationSats - fees;
+                pendingPartialLiquidationSats = pendingPartialLiquidationSats - maxReduction;
                 return 0;
             }
         }
-        return fees;
+        return maxReduction;
     }
 
     /**
@@ -1498,7 +1672,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * 
      * @param amountSats Amount of hBTC to burn from operator and credit towards vault's custodianship
     */
-    function voluntaryhBTCBurn(uint256 amountSats) onlyOperatorAdmin external {
+    function voluntaryhBTCBurn(uint256 amountSats) onlyOperatorAdmin nonReentrant external {
         bool success = btcTokenContract.transferFrom(operatorAdmin, address(parentVault), amountSats);
         require(success, "unable to transfer specified amount of hBTC from the operator");
 
@@ -1506,15 +1680,48 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
 
         // First, burned amount is removed from any pending but not-yet-active partial liquidations.
         // If no partial liquidation is waiting, this will return the full amount back as remaining.
-        uint256 remaining = processCollectedFeesToDecrementPartialPendingLiquidation(amountSats);
+        uint256 remaining = permissionedDecrementPartialPendingLiquidationImpl(amountSats);
 
-        // Then, burned hBTC is compared against the net deposits.
-        // The operator cannot burn more hBTC than the net deposits, and can not be used
-        // to get out of having to process withdrawals that have already been requested
-        // which is why we check net deposits rather than total deposits held.
-        require(remaining <= (totalDepositsHeld - pendingWithdrawalAmountSat), 
-        "cannot burn more hBTC than needed to zero out net deposits");
-        
-        decreaseTotalDepositsHeldFromOperatorBurning(remaining);
+        // If we are in a full liquidation, allow the operator to burn any amount of hBTC, including
+        // more than the total current total deposits, in anticipation of additional deposits.
+        // This allows the operator to burn hBTC before a deposit is confirmed within the full
+        // liquidation deposit grace period without such a deposit's future confirmation allowing
+        // further liquidation of the vault.
+        if (isFullLiquidationStarted()) {
+            // Calculate the amount which immediately goes towards reducing current total deposits first
+            uint256 amountToRemoveFromTotalDeposits = remaining;
+            if (amountToRemoveFromTotalDeposits > totalDepositsHeld) {
+                amountToRemoveFromTotalDeposits = totalDepositsHeld;
+            }
+
+            decreaseTotalDepositsHeldFromOperatorBurning(amountToRemoveFromTotalDeposits);
+            remaining = remaining - amountToRemoveFromTotalDeposits;
+            if (remaining > 0) {
+                // We zeroed out total deposits and have more hBTC burnt, credit it to reserves
+                fullLiquidationOperatorReserves = fullLiquidationOperatorReserves + remaining;
+            }
+        } else {
+            // The vault is not in a full liquidation, so only allow operator to burn up to
+            // the net deposits minus the amount of already pending withdrawals.
+            require(remaining <= (totalDepositsHeld - pendingWithdrawalAmountSat), 
+            "cannot burn more hBTC than needed to zero out net deposits");
+            
+            decreaseTotalDepositsHeldFromOperatorBurning(remaining);
+        }
+    }
+
+    /**
+     * Gets the operator's full liquidation operator reserves
+     */
+    function getFullLiquidationOperatorReserves() public view returns (uint256) {
+        return fullLiquidationOperatorReserves;
+    }
+
+    /**
+     * Called by parent vault when the full liquidation has completed and the operator
+     * has minted any remaining full liquidation reserves back as hBTC.
+     */
+    function saveFullLiquidationOperatorReservesReminted() onlyParentVault external {
+        fullLiquidationOperatorReserves = 0;
     }
 }

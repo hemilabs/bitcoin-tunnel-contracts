@@ -30,6 +30,13 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 * Some values are only set at initial construction and cannot be changed.
 */
 contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
+    event ConfigAdminUpdateInitiated(address indexed oldConfigAdmin, address indexed newConfigAdmin);
+    event ConfigAdminUpdateRejected(address indexed newConfigAdmin);
+    event ConfigAdminUpdateCompleted(address indexed newConfigAdmin);
+    event PriceOracleImplementationUpdated(address indexed newPriceOracle);
+    event BitcoinKitUpgradesPermDisabled(address indexed currentBitcoinKit);
+    event MinCollateralAssetAmountUpdated(uint256 oldMinCollateralAssetAmount, uint256 newMinCollateralAssetAmount);
+
     /**
     * The onlyConfigAdmin modifier is used on all functions that should
     * *only* be callable by the configAdmin.
@@ -65,21 +72,26 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * permitted fee is 10%, or 1000 basis points.
     */
     modifier feeWithinBounds(uint256 fee) {
-        require (fee < 10 * 100);
+        require (fee <= 10 * 100);
         _;
     }
 
+    uint256 public constant CONFIG_ADMIN_UPGRADE_DELAY = 60 * 60 * 12; // 12 hours
+
+    uint256 public constant DEFAULT_DEPOSIT_FEE_SATS = 10_000; // 0.0001 BTC
+    uint256 public constant DEFAULT_WITHDRAWAL_FEE_SATS = 10_000; // 0.0001 BTC
+
     // The minimum deposit fee (in sats) that a vault can charge.
-    uint256 public minDepositFeeSats;
+    uint256 public minDepositFeeSats = DEFAULT_DEPOSIT_FEE_SATS;
 
     // The maximum deposit fee (in sats) that a vault can charge.
-    uint256 public maxDepositFeeSats;
+    uint256 public maxDepositFeeSats = DEFAULT_DEPOSIT_FEE_SATS;
 
     // The minimum withdrawal fee (in sats) that a vault can charge.
-    uint256 public minWithdrawalFeeSats;
+    uint256 public minWithdrawalFeeSats = DEFAULT_WITHDRAWAL_FEE_SATS;
 
     // The maximum withdrawal fee (in sats) that a vault can charge.
-    uint256 public maxWithdrawalFeeSats;
+    uint256 public maxWithdrawalFeeSats = DEFAULT_WITHDRAWAL_FEE_SATS;
 
     // The minimum deposit fee (in basis points) that a vault can charge.
     // For example, "10" means a minimum deposit fee of 0.10%
@@ -97,11 +109,12 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     // For example, "20" means a maximum withdrawal fee of 0.20%.
     uint256 public maxWithdrawalFeeBasisPoints;
 
-    // A one-time latch that only configAdmin can set to permanently disable future
-    // updates to the IBitcoinKit implementation.
+    // The BitcoinKit implementation that SimpleBitcoinVaults referencing
+    // this global config will use
     IBitcoinKit public bitcoinKitContract;
 
-    // Permanently disable upgrading of Bitcoin Kit implementation
+    // A one-time latch that only configAdmin can set to permanently disable future
+    // updates to the IBitcoinKit implementation.
     bool public bitcoinKitUpgradePermDisabled;
 
     // The ERC20 contract which is permitted to act as collateral for SimpleBitcoinVaults.
@@ -142,6 +155,16 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     // and can also update any config value themselves.
     address public configAdmin;
 
+    // When the configAdmin is updated, the new address is set as pendingConfigAdmin
+    // until the pendingConfigAdmin executes an acceptance of the role to prevent
+    // potential issues updating the config admin irreversibly to the incorrect address.
+    address public pendingConfigAdmin;
+
+    // The start time at which an update to the pending config admin was initiated,
+    // used to require an update to the pending config admin to wait for
+    // CONFIG_ADMIN_UPGRADE_DELAY seconds before the upgrade goes into effect.
+    uint256 public pendingConfigAdminUpdateStartTime;
+
     // The address able to update the IAssetPriceOracle implementation used
     address public oracleImplementationAdmin;
 
@@ -171,10 +194,22 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     // The address able to deprecate vaults. Set at construction and not changed.
     address public vaultDeprecationAdmin;
 
+    // The address of the factory which deploys vaults and will inform this
+    // SimpleGlobalVaultConfig of new deployments
+    address public vaultDeploymentAdmin;
+
+    // Mapping storing all deployed vaults using this config
+    mapping(address => bool) public deployedVaults;
+
+    // Mapping of hashes of Bitcoin custodianship script hashes that are in use by vaults
+    mapping(bytes32 => bool) public usedBtcCustodianshipScriptHashes;
+
+
+
 
 
     constructor(address configAdminToSet, 
-                address vaultDeprecationAdminToSet,
+                address vaultFactoryAddress,
                 uint256 initialMinDepositFeeBasisPoints,
                 uint256 initialMaxDepositFeeBasisPoints,
                 uint256 initialMinWithdrawalFeeBasisPoints,
@@ -201,11 +236,25 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
         bitcoinKitContractAdmin =                configAdminToSet;
         minCollateralAssetAmountAdmin =          configAdminToSet;
 
-        vaultDeprecationAdmin = vaultDeprecationAdminToSet;
+        vaultDeprecationAdmin = vaultFactoryAddress;
+        vaultDeploymentAdmin = vaultFactoryAddress;
 
         permittedCollateralAssetContract = _permittedCollateralAssetContract;
         minCollateralAssetAmount =          initialMinCollateralAssetAmount;
         priceOracle =                       initialPriceOracle;
+
+        require(permSoftCollateralizationThreshold > 100, 
+        "soft collateralization threshold must be greater than 100");
+
+        require(permHardCollateralizationThreshold > 100, 
+        "hard collateralization threshold must be greater than 100");
+
+        // Allow creating vaults where the thresholds are the same.
+        // Normally, soft threshold will be larger (ex: 130 soft, 110 hard
+        // means deposits won't be accepted below 130% collateral, but liquidations
+        // won't occur until 110%).
+        require(permSoftCollateralizationThreshold >= permHardCollateralizationThreshold,
+         "soft collateralization threshold must be >= hard");
 
         // The collateralization thresholds are set at construction and cannot be changed
         softCollateralizationThreshold = permSoftCollateralizationThreshold;
@@ -218,13 +267,70 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
         bitcoinKitContract =                initialBitcoinKitContract;
     }
 
+    function markBtcCustodianshipScriptHashUsed(bytes32 scriptHash) external {
+        require(scriptHash != bytes32(0), "script hash must not be zero");
+        require(!usedBtcCustodianshipScriptHashes[scriptHash], "script hash is already in use");
+        usedBtcCustodianshipScriptHashes[scriptHash] = true;
+    }
+
     /**
-    * Updates the configAdmin to a new admin address, only callable by the current configAdmin.
+     * When the SimpleBitcoinVaultFactory deploys a new vault, it calls this function
+     * to inform this config contract of the new vault.
+     * 
+     * @param newVault Address of the newly deployed vault
+     */
+    function saveNewVaultDeployment(address newVault) external notZeroAddress(newVault) {
+        require(msg.sender == vaultDeploymentAdmin, "only vault deployment admin can save new vaults in config");
+        deployedVaults[newVault] = true;
+    }
+
+    /**
+    * Initiates an update to the configAdmin, only callable by the current configAdmin.
     *
     * @param newConfigAdmin The new configAdmin to set
     */
-    function updateConfigAdmin(address newConfigAdmin) external onlyConfigAdmin notZeroAddress(newConfigAdmin) {
+    function initiateConfigAdminUpdate(address newConfigAdmin) external onlyConfigAdmin notZeroAddress(newConfigAdmin) {
+        pendingConfigAdmin = newConfigAdmin;
+        pendingConfigAdminUpdateStartTime = block.timestamp;
+
+        address oldConfigAdmin = configAdmin;
         configAdmin = newConfigAdmin;
+        emit ConfigAdminUpdateInitiated(oldConfigAdmin, configAdmin);
+    }
+
+   /**
+     * Reject (delete) a pending configAdmin update. Can be called by configAdmin or
+     * the new pending configAdmin.
+    */
+    function rejectConfigAdminUpdate() external {
+        require(msg.sender == configAdmin || msg.sender == pendingConfigAdmin,
+         "only the current or proposed new config admin can reject a config admin update");
+
+        address temp = address(pendingConfigAdmin);
+        pendingConfigAdmin = address(0);
+        pendingConfigAdminUpdateStartTime = 0;
+        emit ConfigAdminUpdateRejected(temp);
+    }
+
+    /**
+     * Processes the configAdmin update after the activation time has been reached. Can only
+     * be called by the soon-to-be configAdmin as a form of accepting the config admin
+     * role.
+     */
+    function finalizeConfigAdminUpdate() external {
+        // Require the pending new config admin to call this function to "accept" ownership
+        require(msg.sender == pendingConfigAdmin);
+        require(pendingConfigAdminUpdateStartTime != 0, "a config admin upgrade is not in progress");
+
+        uint256 elapsed = block.timestamp - pendingConfigAdminUpdateStartTime;
+
+        require(elapsed >= CONFIG_ADMIN_UPGRADE_DELAY, 
+        "the required config admin upgrade delay has not elapsed");
+
+        configAdmin = pendingConfigAdmin;
+        pendingConfigAdmin = address(0);
+        pendingConfigAdminUpdateStartTime = 0;
+        emit ConfigAdminUpdateCompleted(configAdmin);
     }
 
     /**
@@ -298,6 +404,7 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     */
     function updatePriceOracleImplementation(IAssetPriceOracle newPriceOracle) external senderPermissionCheck(oracleImplementationAdmin) notZeroAddress(address(newPriceOracle)) {
         priceOracle = newPriceOracle;
+        emit PriceOracleImplementationUpdated(address(newPriceOracle));
     }
 
     /**
@@ -307,6 +414,9 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * @param newMinDepositFeeBasisPoints The new minDepositFeeBasisPoints to set
     */
     function updateMinDepositFees(uint256 newMinDepositFeeSats, uint256 newMinDepositFeeBasisPoints) external senderPermissionCheck(minDepositFeeAdmin) feeWithinBounds(newMinDepositFeeBasisPoints) {
+        require(newMinDepositFeeSats <= maxDepositFeeSats, "new min deposit fee sats must be <= current max deposit fee sats");
+        require(newMinDepositFeeBasisPoints <= maxDepositFeeBasisPoints, "new min deposit fee bps must be <= current max deposit fee bps");
+
         minDepositFeeSats = newMinDepositFeeSats;
         minDepositFeeBasisPoints = newMinDepositFeeBasisPoints;
         emit MinDepositFeesUpdated(newMinDepositFeeSats, newMinDepositFeeBasisPoints);
@@ -319,6 +429,9 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * @param newMaxDepositFeeBasisPoints The new maxDepositFeeBasisPoints to set
     */
     function updateMaxDepositFees(uint256 newMaxDepositFeeSats, uint256 newMaxDepositFeeBasisPoints) external senderPermissionCheck(maxDepositFeeAdmin) feeWithinBounds(newMaxDepositFeeBasisPoints) {
+        require(newMaxDepositFeeSats >= minDepositFeeSats, "new max deposit fee sats must be >= current min deposit fee sats");
+        require(newMaxDepositFeeBasisPoints >= minDepositFeeBasisPoints, "new max deposit fee bps must be >= current min deposit fee bps");
+        
         maxDepositFeeSats = newMaxDepositFeeSats;
         maxDepositFeeBasisPoints = newMaxDepositFeeBasisPoints;
         emit MaxDepositFeesUpdated(newMaxDepositFeeSats, newMaxDepositFeeBasisPoints);
@@ -331,6 +444,9 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * @param newMinWithdrawalFeeBasisPoints The new minWithdrawalFeeBasisPoints to set
     */
     function updateMinWithdrawalFees(uint256 newMinWithdrawalFeeSats, uint256 newMinWithdrawalFeeBasisPoints) external senderPermissionCheck(minWithdrawalFeeAdmin) feeWithinBounds(newMinWithdrawalFeeBasisPoints) {
+        require(newMinWithdrawalFeeSats <= maxWithdrawalFeeSats, "new min withdrawal fee sats must be <= current max withdrawal fee sats");
+        require(newMinWithdrawalFeeBasisPoints <= maxWithdrawalFeeBasisPoints, "new max withdrawal fee bps must be <= current max withdrawal fee bps");
+        
         minWithdrawalFeeSats = newMinWithdrawalFeeSats;
         minWithdrawalFeeBasisPoints = newMinWithdrawalFeeBasisPoints;
         emit MinWithdrawalFeesUpdated(newMinWithdrawalFeeSats, newMinWithdrawalFeeBasisPoints);
@@ -343,13 +459,16 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * @param newMaxWithdrawalFeeBasisPoints The new maxWithdrawalFeeBasisPoints to set
     */
     function updateMaxWithdrawalFees(uint256 newMaxWithdrawalFeeSats, uint256 newMaxWithdrawalFeeBasisPoints) external senderPermissionCheck(maxWithdrawalFeeAdmin) feeWithinBounds(newMaxWithdrawalFeeBasisPoints) {
+        require(newMaxWithdrawalFeeSats >= minWithdrawalFeeSats, "new max withdrawal fee sats must be >= current min withdrawal fee sats");
+        require(newMaxWithdrawalFeeBasisPoints >= minWithdrawalFeeBasisPoints, "new max withdrawal fee bps must be >= current min withdrawal fee bps");
+        
         maxWithdrawalFeeSats = newMaxWithdrawalFeeSats;
         maxWithdrawalFeeBasisPoints = newMaxWithdrawalFeeBasisPoints;
         emit MaxWithdrawalFeesUpdated(newMaxWithdrawalFeeSats, newMaxWithdrawalFeeBasisPoints);
     }
 
     /**
-    * Updates the bitcoinKitContract.
+    * Updates the bitcoinKitContract to a new implementation.
     *
     * @param newBitcoinKitContract The new bitcoinKitContract to set
     */
@@ -359,8 +478,14 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
         emit BitcoinKitContractUpdated(address(newBitcoinKitContract));
     }
 
+    /**
+     * Permanently disable future updates to the BitcoinKit implementation used
+     * by SimpleBitcoinVaults referencing this config. Only callable by the
+     * configAdmin.
+     */
     function permDisableBitcoinKitUpgrades() external onlyConfigAdmin {
         bitcoinKitUpgradePermDisabled = true;
+        emit BitcoinKitUpgradesPermDisabled(address(bitcoinKitContract));
     }
 
     /**
@@ -371,7 +496,9 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     */
     function updateMinCollateralAssetAmount(uint256 newMinCollateralAssetAmount) external senderPermissionCheck(minCollateralAssetAmountAdmin) {
         require(newMinCollateralAssetAmount > minCollateralAssetAmount, "the minimum collateral asset amount can only be increased");
+        uint256 oldMinCollateralAssetAmount = minCollateralAssetAmount;
         minCollateralAssetAmount = newMinCollateralAssetAmount;
+        emit MinCollateralAssetAmountUpdated(oldMinCollateralAssetAmount, minCollateralAssetAmount);
     }
 
     /**

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import "../vaults/IVaultFactory.sol";
-
 /** 
 * An implementation of a simple whitelist system for addresses.
 * 

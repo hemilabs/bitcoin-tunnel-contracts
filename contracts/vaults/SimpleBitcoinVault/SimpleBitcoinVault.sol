@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
 import "../IBitcoinVault.sol";
 import "./SimpleGlobalVaultConfig.sol";
 import "../VaultUtils.sol";
 import "./SimpleBitcoinVaultState.sol";
 import "./ISimpleBitcoinVaultStateFactory.sol";
 import "../../BitcoinTunnelManager.sol";
-import "../../oracles/IAssetPriceOracle.sol";
 import "../../BTCToken.sol";
 import "./SimpleBitcoinVaultStructs.sol";
 import "./SimpleBitcoinVaultUTXOLogicHelper.sol";
@@ -146,7 +147,7 @@ import "./SimpleBitcoinVaultUTXOLogicHelper.sol";
  * additional deposits to the vault are permitted during the first 4 hours of liquidation and the
  * depositor will be credited with the appropriate hBTC if their deposit is otherwise valid and
  * doesn't cause the vault to exceed the soft collateralization threshold as usual (only applies
- * when vault is being liquidated due to operator misbheavior rather than collateralization).
+ * when vault is being liquidated due to operator misbehavior rather than collateralization).
  *
  * If additional deposits to the vault are confirmed during the liquidation process, the amount of
  * hBTC needing to be liquidated will be increased. This can result in selling collateral for higher
@@ -288,15 +289,17 @@ import "./SimpleBitcoinVaultUTXOLogicHelper.sol";
  * up collateral).
 */
 
-contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStructs {
-    event CollateralDeposited(uint256 indexed amountDeposited, uint256 indexed totalCollateral);
-    event CollateralWithdrawn(uint256 indexed amountWithdrawn, uint256 indexed totalCollateral);
+contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStructs, ReentrancyGuard {
+    event CollateralDeposited(uint256 amountDeposited, uint256 totalCollateral);
+    event CollateralWithdrawn(uint256 amountWithdrawn, uint256 totalCollateral);
 
+    event VaultInitializing();
     event VaultLive();
+    event VaultClosingInit();
+    event VaultClosingVerif();
+    event VaultClosed();
 
-    event PartialLiquidationStarted(uint256 satsToRepurchase, uint256 startingBid);
-
-    event FullLiquidationStarted(uint256 satsToRepurchase, uint256 startingPrice);
+    event OperatorAdminUpdated(address indexed newOperatorAdmin);
 
     /**
      * The onlyTunnelAdmin modifier is used on all functions that should *only* be callable by the
@@ -348,8 +351,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
     // hVM already runs at least 2 blocks behind the Bitcoin tip, so these
     // are each 6 (2 + 4) confirmations in practice under normal hVM operation.
-    uint32 public constant MIN_BITCOIN_CONFIRMATIONS_FOR_DEPOSIT = 4;
-    uint32 public constant MIN_BITCOIN_CONFIRMATIONS_FOR_WITHDRAWAL_FINALIZATION = 4;
+    uint32 public constant MIN_BITCOIN_CONFIRMATIONS = 4;
 
     // Limit the maximum number of pending withdrawals allowed, to limit worst-case gas costs when
     // analyzing the entire withdrawal queue is required (ex: confirming that a withdrawal is
@@ -444,8 +446,6 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         btcTokenContract = _btcTokenContract;
         vaultStatus = Status.CREATED;
 
-        minCollateralAmount = vaultConfig.getMinCollateralAssetAmount();
-
         vaultStateChild = vaultStateFactory.createSimpleBitcoinVaultState(this, _operatorAdmin, _vaultConfig, _btcTokenContract);
 
         utxoLogicHelper = _utxoLogicHelper;
@@ -456,9 +456,10 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     *
     * @param newOperatorAdmin The new operatorAdmin to set.
     */
-    function updateOperatorAdmin(address newOperatorAdmin) onlyOperatorAdmin external {
+    function updateOperatorAdmin(address newOperatorAdmin) onlyOperatorAdmin notZeroAddress(newOperatorAdmin) external {
         operatorAdmin = newOperatorAdmin;
         vaultStateChild.updateOperatorAdmin(operatorAdmin);
+        emit OperatorAdminUpdated(operatorAdmin);
     }
 
     /**
@@ -479,7 +480,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      *
      * @param amount The amount (in atomic units) of collateral to deposit
     */
-    function depositCollateral(uint256 amount) public onlyOperatorAdmin returns (bool success) {
+    function depositCollateral(uint256 amount) public onlyOperatorAdmin nonReentrant returns (bool success) {
         // Make sure that a new vault cannot be initialized with less collateral than the config
         // requires
         if (vaultStatus == Status.CREATED) {
@@ -492,11 +493,16 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
         require(!isWindingDown(), "cannot deposit collateral to a vault that is winding down");
 
-        // Do not check for minimum collateral amount here - allow multiple indepdent deposits to
+        uint256 expectedBalance = vaultConfig.getPermittedCollateralAssetContract().balanceOf(address(this)) + amount;
+
+        // Do not check for minimum collateral amount here - allow multiple independent deposits to
         // add up to the minimum collateral amount if needed for going live.
         bool depositSuccessful = vaultConfig.getPermittedCollateralAssetContract().transferFrom(msg.sender, address(this), amount);
 
         require(depositSuccessful, "collateral deposit to vault was not successful");
+
+        require(expectedBalance == vaultConfig.getPermittedCollateralAssetContract().balanceOf(address(this)),
+        "collateral asset balance did not increase as expected from the collateral deposit");
 
         uint256 totalCollateral = vaultStateChild.creditOperatorCollateralDeposit(amount);
 
@@ -504,6 +510,13 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
             // Created status means no assets are locked up to secure the vault, so update to
             // INITIALIZING if in CREATED state
             vaultStatus = Status.INITIALIZING;
+
+            // Set the min collateral amount upon initial deposit (not done at construction)
+            // as that would allow operators to pre-stage many vaults with lower collateral
+            // requirements before an upgrade that they don't use until later allowing them
+            // to effectively bypass increased minimum collateral requirements for new vaults
+            minCollateralAmount = vaultConfig.getMinCollateralAssetAmount();
+            emit VaultInitializing();
         }
 
         emit CollateralDeposited(amount, totalCollateral);
@@ -513,7 +526,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     /**
      * Called by the operatorAdmin to set the BTC address that this vault will use for BTC
      * custodianship for its lifetime. Can only be set once, and is required before setting the
-     * vault to live.
+     * vault to live. 
      *
      * @param btcAddress The Bitcoin address which the vault will use for custodianship
     */
@@ -531,8 +544,13 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         UTXO[] memory utxos = bitcoinKit.getUTXOsForBitcoinAddress(btcAddress, 0, 1);
         require(utxos.length == 0, "btc custodianship address cannot have any utxos");
 
-        bitcoinCustodyAddress = btcAddress;
         bitcoinCustodyAddressScriptHash = keccak256(script);
+
+        // If the script hash corresponding to the BTC custodianship address is already used,
+        // this call will revert.
+        vaultConfig.markBtcCustodianshipScriptHashUsed(bitcoinCustodyAddressScriptHash);
+
+        bitcoinCustodyAddress = btcAddress;
         bitcoinCustodyAddressSet = true;
     }
 
@@ -637,9 +655,11 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * Status.CLOSING_INIT. Callable by anyone.
     */
     function finalizeWindDown() external {
-        require(block.timestamp >= windDownTime, "wind down time has not yet occurred");
-        require(vaultStatus == Status.LIVE, "can only wind down a vault that is currently live");
+        require(isWindingDown(), "vault must be winding down to finalize");
+        require(block.timestamp >= windDownTime, "wind down time has not passed");
+        require(vaultStatus == Status.LIVE, "can only wind down a live vault");
         vaultStatus = Status.CLOSING_INIT;
+        emit VaultClosingInit();
     }
 
     /**
@@ -648,25 +668,55 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     */
     function closeVaultAfterFullLiquidation() external onlyOperatorAdmin {
         require(vaultStateChild.isFullLiquidationStarted(), "a full liquidation has not yet started");
-        require(vaultStateChild.hasFullLiquidationDepositGracePeriodElapsed(), "the full liquidation deposit grace period has not elapsed");
-        require(vaultStateChild.getTotalDepositsHeld() == 0, "there are still unliquidated net deposits held by the vault");
+        require(vaultStateChild.hasFullLiquidationDepositGracePeriodElapsed(), "the full liquidation deposit grace period is ongoing");
+        require(vaultStateChild.getTotalDepositsHeld() == 0, "there are unliquidated net deposits held by the vault");
 
         // If the above conditions have been met, then this vault no longer holds, and will
         // never again hold, BTC on behalf of the protocol so it can be set directly to closed.
         vaultStatus = Status.CLOSED;
         returnAllCollateralToOperatorAdmin();
+        emit VaultClosed();
     }
 
     /**
      * Returns all collateral deposited by the operator back to the operator.
      * Assumes caller has checked that the entire collateral can be withdrawn (all obligations
-     * related to BTC held on behalf of the protocol have been fulfilled and vault is closeCLOSEDd).
+     * related to BTC held on behalf of the protocol have been fulfilled and vault is CLOSED).
     */
     function returnAllCollateralToOperatorAdmin() private {
         // Withdraw entire deposited balance, which also returns collateral tokens the operator sent to the
-        // contract directly and did not get credited for.
+        // contract directly by accident for which the operator was not credited.
         uint256 balance = vaultConfig.getPermittedCollateralAssetContract().balanceOf(address(this));
-        vaultConfig.getPermittedCollateralAssetContract().transfer(operatorAdmin, balance);
+
+        bool success = vaultConfig.getPermittedCollateralAssetContract().transfer(operatorAdmin, balance);
+        if (!success) {
+            revert("unable to return collateral to operator");
+        }
+    }
+
+
+    /**
+     * Normally a vault will transition from CLOSING_INIT to CLOSING_VERIF as part of a withdrawal
+     * initiation that increases the total pending withdrawal amount to be equal to the total
+     * deposits held (meaning that if all withdrawals are successfully processed, the vault will 
+     * have no remaining BTC it is custoding on behalf of the protocol), however there are other
+     * scenarios where a vault could have no deposits held without a withdrawal initialization
+     * occurring which accounts for the remaining custodied BTC:
+     * 1. Vault never accepts deposits during it's entire lifespan
+     * 2. Vault operator voluntarily liquidates enough hBTC to zero out the vault's custodianship
+     *
+     * If either of these scenarios occurs, the operator can use this function to check
+     * whether the vault is eligible to transition to the CLOSING_VERIF state and set it accordingly.
+     */
+    function enterClosingVerif() external onlyOperatorAdmin {
+        require(vaultStatus == Status.CLOSING_INIT, "can only enter CLOSING_VERIF if in CLOSING_INIT");
+
+        // Operator could optionally liquidate hBTC to lower total deposits held to make this check pass
+        require(vaultStateChild.getPendingWithdrawalAmountSat() == vaultStateChild.getTotalDepositsHeld(),
+        "pending withdrawals do not match total deposits held");
+
+        vaultStatus = Status.CLOSING_VERIF;
+        emit VaultClosingVerif();
     }
 
     /**
@@ -674,7 +724,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * remaining ERC20 collateral to the vault operator. 
      * 
      * Note that the operator could (and generally will) have pending fees that they have not minted
-     * yet. If the tunnel system mnited those as hBTC then the vault could not be closed as it would
+     * yet. If the tunnel system minted those as hBTC then the vault could not be closed as it would
      * still be custodying BTC on behalf of the system (backing the hBTC that the operator minted),
      * so instead just zero out the pending fees, and the operator owns them on BTC directly.
     */
@@ -689,6 +739,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
         returnAllCollateralToOperatorAdmin();
         totalPendingFeesCollected = 0;
+        emit VaultClosed();
     }
 
     /** 
@@ -714,10 +765,8 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     function confirmDeposit(bytes32 txid, uint256 outputIndex, bytes memory) external onlyTunnelAdmin returns (bool success, uint256 totalDepositSats, uint256 netDepositSats, address depositor) {
         if (vaultStateChild.isFullLiquidationStarted()) {
             require(!vaultStateChild.hasFullLiquidationDepositGracePeriodElapsed(), 
-            "vault has been in liquidation for more than the grace period");
+            "vault liquidation grace period elapsed");
         }
-
-        require(vaultStatus == Status.LIVE, "can only process a deposit on a live vault");
 
         // Check if the global config indicates that this vault should be deprecated, and if so
         // start the wind down
@@ -729,13 +778,14 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
             // Special case if we're past the windDownTime but the vault has not been set to
             // CLOSING_INIT yet. Set to CLOSING_INIT and return a failed deposit.
             vaultStatus = Status.CLOSING_INIT;
+            emit VaultClosingInit();
             return (false, 0, 0, address(0));
         }
 
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 
-        require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS_FOR_DEPOSIT, 
-        "btc deposit has not achieved sufficient confirmations");
+        require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS, 
+        "btc deposit is not confirmed");
 
         uint256 depositFeeSats = 0;
 
@@ -743,12 +793,17 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         utxoLogicHelper.checkDepositConfirmationValidity(txid, outputIndex, bitcoinKit, 
         bitcoinCustodyAddressScriptHash, vaultStateChild, MINIMUM_DEPOSIT_SATS);
 
-        totalDepositSats = netDepositSats + depositFeeSats;
-
         // Should never happen as our implementation always reverts rather than returning false, but
         // including to protect against future code updates to the checkDepositConfirmationValidity
         // function returning a failure boolean and it not being caught appropriately here.
         require(success, "deposit confirmation was not successful for an unspecified reason");
+
+        totalDepositSats = netDepositSats + depositFeeSats;
+
+        // Ensure that this deposit does not cause the vault to exceed its soft collateralization
+        // threshold (even after the fees are collected in future).
+        require(!vaultStateChild.doesDepositExceedSoftCollateralThreshold(totalDepositSats), 
+        "deposit would exceed soft collateralization threshold");
 
         // Total deposits held on behalf of the protocol is increased by the amount after fees, but
         // operator does not get their portion of fees until they sweep (if required - see special
@@ -804,14 +859,27 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     /**
      * The SimpleBitcoinVault permits its operators to mint collected fees as hBTC.
      *
-     * Only callable by the tunnelAdmin (the BitcoinTunnelManager that created and owns this vault).
+     * Only callable by the tunnelAdmin (the BitcoinTunnelManager that created and owns this vault),
+     * which passes in the originating caller to ensure that the original call was initiated by the
+     * operator admin.
      * 
      * @param operator The address of the operator to process a collected fee mintage for (passed through)
      * @param amountToMint The amount of collected fees to mint
     */
-    function mintOperatorFees(address operator, uint256 amountToMint) external onlyTunnelAdmin returns (bool success, uint256 sats) {
-        require(operator == operatorAdmin, "operator fees can only be minted by tunnel admin");
+    function mintOperatorFees(address operator, uint256 amountToMint) external onlyOperatorAdminPassthrough(operator) returns (bool success, uint256 sats) {
+        if (vaultStatus == Status.CLOSED) {
+            // Special case, when the vault is closed allow the operator to mint any remaining
+            // full liquidation reserves that weren't consumed handling new deposits during the
+            // grace period
+            uint256 reserves = vaultStateChild.getFullLiquidationOperatorReserves();
+            if (reserves > 0) {
+                vaultStateChild.saveFullLiquidationOperatorReservesReminted();
+                return (true, reserves);
+            }
+        }
+
         require(totalPendingFeesCollected > 0, "there must be a non-zero number of pending fees to mint operator fees");
+
         require(amountToMint <= totalPendingFeesCollected, "cannot mint more operator fees than have been collected");
 
         // Only permitted when the vault is live, otherwise vault is closing and operator will instead collect fees by owning
@@ -848,39 +916,39 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     */
     function initiateWithdrawal(bytes memory destinationScript, uint256 amountSats, address originator) external onlyTunnelAdmin returns (bool success, uint256 feeSats, uint32 uuid) {
         require(amountSats <= getNetDeposits(), 
-        "vault cannot process a withdrawal for more than its net deposits");
+        "withdrawal exceeds net deposits");
 
         require(amountSats >= MINIMUM_WITHDRAWAL_SATS, 
-        "vault cannot process a withdrawal lower than its minimum withdrawal");
+        "withdrawal is lower than minimum");
 
         require(destinationScript.length >= MIN_VALID_BTC_SCRIPT_SIZE, 
-        "withdrawal destination script must be at least the minimum permitted script size");
+        "withdrawal destination script to small");
 
         require(destinationScript.length <= MAX_VALID_BTC_SCRIPT_SIZE, 
-        "withdrawal destination script must be no larger than the maximum permitted script size");
+        "withdrawal destination script too large");
 
         require(vaultStatus == Status.LIVE || vaultStatus == Status.CLOSING_INIT, 
         "can only process a withdrawal on a live or closing_init vault");
 
         require(!vaultStateChild.isFullLiquidationStarted(), 
-        "vault is being fully liquidated and cannot accept withdrawals.");
+        "vault is being fully liquidated and cannot accept withdrawals");
 
         require(keccak256(destinationScript) != bitcoinCustodyAddressScriptHash, 
-        "cannot initiate a withdrawal that withdraws to this vault's custodianship btc address");
+        "cannot initiate a withdrawal to this vault's address");
 
         uint256 depositsHeld = vaultStateChild.getTotalDepositsHeld();
 
         uint256 pendingWithdrawalAmount = vaultStateChild.getPendingWithdrawalAmountSat();
 
         require(pendingWithdrawalAmount + amountSats <= depositsHeld, 
-        "cannot withdraw more sats than is held by vault");
+        "cannot withdraw more sats than vault holds");
 
         uint256 withdrawalFeeSats = vaultStateChild.calculateWithdrawalFee(amountSats);
 
-        uint256 pendingWithdrawalAmountSat = 0;
+        uint256 pendingWithdrawalAmountAfterWithdrawal = 0;
 
-        (uuid, pendingWithdrawalAmountSat) = vaultStateChild.internalInitializeWithdrawal(amountSats, 
-        withdrawalFeeSats, block.timestamp, destinationScript, originator);
+        (uuid, pendingWithdrawalAmountAfterWithdrawal) = vaultStateChild.internalInitializeWithdrawal(
+            amountSats, withdrawalFeeSats, block.timestamp, destinationScript, originator);
 
         if (vaultStatus == Status.CLOSING_INIT) {
             // If the vault is in closing mode, make sure that a withdrawal doesn't lower the
@@ -889,13 +957,15 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
             uint256 availableAfter = depositsHeld - (pendingWithdrawalAmount + amountSats);
             if (availableAfter < MINIMUM_WITHDRAWAL_SATS) {
                 require(availableAfter == 0,
-                "withdrawal would leave remaining vault balance below the minimum withdrawal threshold");
+                "withdrawal would leave vault balance below the minimum withdrawal threshold");
             }
 
-            // If the vault is in closing mode and the pending withdrawal amount is equal to the BTC
-            // custodied, change the vault to CLOSING_VERIF
-            if (pendingWithdrawalAmountSat == depositsHeld) {
+            // If the vault is in closing mode and the pending withdrawal amount is equal to the remaining
+            // BTC custodied after all other pending withdrawals are processed, transition to CLOSING_VERIF
+            // which will stay in force until all pending withdrawals are processed.
+            if (pendingWithdrawalAmountAfterWithdrawal == depositsHeld) {
                 vaultStatus = Status.CLOSING_VERIF;
+                emit VaultClosingVerif();
             }
         }
 
@@ -933,8 +1003,8 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 
-        require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS_FOR_WITHDRAWAL_FINALIZATION,
-         "btc withdrawal has not achieved sufficient confirmations");
+        require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS,
+         "btc withdrawal not confirmed");
 
         (uint256 feesOverpaid, uint256 feesCollected, uint256 withdrawalAmount, 
         bool createdOutput, uint256 newSweepUTXOValue) =
@@ -1023,7 +1093,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * confirmed deposit UTXO to use.
      *
      * @param depositTxId The transaction ID of the unswept confirmed deposit to count as the sweep UTXO
-     * @param abandonExistingUTXO Whether to forcibly abandon an existing sweep UTXO and chare the operator for the abandoned value.
+     * @param abandonExistingUTXO Whether to forcibly abandon an existing sweep UTXO and charge the operator for the abandoned value.
     */
     function assignConfirmedDepositAsSweep(bytes32 depositTxId, bool abandonExistingUTXO) external onlyOperatorAdmin {
         uint256 depositFee = vaultStateChild.getCollectableFees(depositTxId);
@@ -1034,7 +1104,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         if (currentSweepUTXO != bytes32(0)) {
             // There is already a sweep UTXO set, so only replace it if abandoning is allowed.
             require(abandonExistingUTXO, 
-            "cannot assign a confirmed deposit as sweep UTXO when one already exists and abandoning is not permitted");
+            "sweep utxo exists and abandoning not permitted");
 
             uint256 abandonedUTXOValue = currentSweepUTXOValue;
             if (abandonedUTXOValue <= totalPendingFeesCollected) {
@@ -1100,9 +1170,12 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     function processSweep(bytes32 sweepTxId) external {
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 
-        (uint256 sweptValue, uint256 netDepositValue, uint256 newSweepOutputValue, bytes32[] memory sweptDeposits) = 
-        utxoLogicHelper.checkSweepValidity(sweepTxId, bitcoinKit, bitcoinCustodyAddressScriptHash, 
+        (int256 sweptValue, uint256 netDepositValue, uint256 newSweepOutputValue, bytes32[] memory sweptDeposits) =
+        utxoLogicHelper.checkSweepValidity(sweepTxId, bitcoinKit, bitcoinCustodyAddressScriptHash,
         currentSweepUTXO, currentSweepUTXOOutput, vaultStateChild);
+
+        require(bitcoinKit.getTxConfirmations(sweepTxId) >= MIN_BITCOIN_CONFIRMATIONS,
+         "btc sweep tx not confirmed");
 
         // Save fees collected for all consumed inputs, not done in checkSweepValidity so that
         // function doesn't mutate state (as it does not have permissions to call the
@@ -1116,22 +1189,29 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         // If the sweptValue is less than the netDepositValue, then the operator had to spend more
         // BTC fees than they charged users for, so try to take it out of the operator's collected
         // fees. If there are not enough collected fees to cover, then start a partial liquidation.
-        if (sweptValue < netDepositValue) {
-            uint256 diff = netDepositValue - sweptValue;
+        if (sweptValue < int256(netDepositValue)) {
+            // If sweptValue is negative, then it indicates that the output of the sweep was less
+            // than the consumed sweep input, and this math will account for this difference.
+            // For example if netDepositValue = 1000 sats and sweptValue = -100 (output was 100 sats
+            // less than original sweep input), then (1000 - (-100)) = 1100 which is the net difference
+            // we must make up for through taking fees and/or allowing a partial pending liquidation.
+            uint256 diff = uint256(int256(netDepositValue) - sweptValue);
             if (diff <= totalPendingFeesCollected) {
                 totalPendingFeesCollected = totalPendingFeesCollected - diff;
             } else {
                 diff = diff - totalPendingFeesCollected;
                 totalPendingFeesCollected = 0;
 
-                // Reamining diff needs to be liquidated
+                // Remaining diff needs to be liquidated
                 vaultStateChild.creditPartialPendingLiquidationSats(diff);
             }
         } else {
             // If the sweptValue is more than netDepositValue, then the difference is the operator's
             // collected fees (Bitcoin transaction fee already removed by sweptValue being
-            // calculated from the actual output value)
-            creditOperatorWithFees(sweptValue - netDepositValue);
+            // calculated from the actual output value).
+            // Here sweptValue must always be positive as it was not less than netDepositValue which
+            // is a uint256, so conversion is safe.
+            creditOperatorWithFees(uint256(sweptValue) - netDepositValue);
         }
 
         currentSweepUTXO = sweepTxId;
@@ -1175,16 +1255,18 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     function challengeWithdrawal(uint32 uuid, bytes memory) external onlyTunnelAdmin returns (bool success, uint256 satsToCredit, address withdrawer) {
         Withdrawal memory withdrawal = vaultStateChild.getWithdrawal(uuid);
 
-        require(vaultStateChild.isWithdrawalFulfilled(uuid), "this withdrawal was already successfully processed");
+        require(!vaultStateChild.isWithdrawalFulfilled(uuid), "withdrawal was successfully processed");
+        require(vaultStateChild.isWithdrawalAlreadyChallenged(uuid), "withdrawal has already been challenged");
 
         if (block.timestamp < withdrawal.timestampRequested + WITHDRAWAL_GRACE_PERIOD_SECONDS) {
-            revert("the withdrawal grace period has not elapsed, and the operator can still process this withdrawal");
+            revert("the withdrawal grace period has not elapsed");
         }
 
         // The withdrawal has not been fulfilled and the time has elapsed, so sender should be
         // credited with hBTC and the vault needs to enter a full liquidation. Do not need to check
         // if a full liquidation is already allowed or in progress as it is a one-time latch.
         vaultStateChild.setFullCollateralLiquidationAllowed();
+        vaultStateChild.saveSuccessfulWithdrawalChallenge(uuid);
         return (true, withdrawal.amount, withdrawal.evmOriginator);
     }
 
@@ -1215,15 +1297,14 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * @return success Whether or not the TxID was determined to prove an improper outgoing transaction and the vault can be liquidated
      */
     function reportInvalidSweepSpend(bytes32 txid, uint32 inputIndexToBlame) external returns (bool success) {
-        require(vaultStatus != Status.CLOSED, 
-        "vault is closed and operator owns all BTC remaining in custodianship address");
+        require(vaultStatus != Status.CLOSED, "vault is closed");
 
         require(!vaultStateChild.isFullCollateralLiquidationAllowed(), 
-        "a full liquidation is already allowed and this function would have no effect");
+        "a full liquidation is already allowed");
 
         // Make sure this txid hasn't already been acknowledged as a valid withdrawal fulfillment
         require(!vaultStateChild.isTransactionAcknowledgedWithdrawalFulfillment(txid), 
-        "transaction has already been accepted as a valid withdrawal fulfillment");
+        "transaction was accepted as valid withdrawal");
 
         // We do not check for confirmations as any transaction which is invalid leads to liquidation
         // even if it is later reorged out of the Bitcoin chain, because the operator misbehaved for it
@@ -1260,11 +1341,10 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * @param inputIndexToBlame The index of the input which performs the invalid confirmed deposit UTXO spend
      */
     function reportInvalidConfirmedDepositSpend(bytes32 txid, uint32 inputIndexToBlame) external returns (bool success) {
-        require(vaultStatus != Status.CLOSED, 
-        "vault is closed and operator owns all BTC remaining in custodianship address");
+        require(vaultStatus != Status.CLOSED, "vault is closed");
 
         require(!vaultStateChild.isFullCollateralLiquidationAllowed(), 
-        "a full liquidation is already allowed and this function would have no effect");
+        "a full liquidation is already allowed");
 
         // We do not check for confirmations as any transaction which is invalid leads to
         // liquidation even if it is later reorged out of the Bitcoin chain, because the operator
@@ -1308,7 +1388,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     function isWithdrawalAvailable() external view returns (bool withdrawalAvailable) {
         if (vaultStatus == Status.LIVE || vaultStatus == Status.CLOSING_INIT) {
             uint256 available = getNetDeposits();
-            if (available > MINIMUM_WITHDRAWAL_SATS) {
+            if (available >= MINIMUM_WITHDRAWAL_SATS) {
                 return true;
             }
             return false;
@@ -1324,7 +1404,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     */
     function getWithdrawalLimits() external view returns (uint256 minWithdrawal, uint256 maxWithdrawal) {
         uint256 available = getNetDeposits();
-        if (available > MINIMUM_WITHDRAWAL_SATS) {
+        if (available >= MINIMUM_WITHDRAWAL_SATS) {
             return (MINIMUM_WITHDRAWAL_SATS, available);
         } else {
             return (0, 0);
@@ -1357,7 +1437,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * @param amount The amount of collateral in atomic units to send to the recipient
     */
     function transferCollateralForChild(address recipient, uint256 amount) external onlyStateChild returns (bool success) {
-        success = vaultConfig.getPermittedCollateralAssetContract().transferFrom(address(this), recipient, amount);
+        success = vaultConfig.getPermittedCollateralAssetContract().transfer(recipient, amount);
         return success;
     }
 }
