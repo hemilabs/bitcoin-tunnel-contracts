@@ -213,7 +213,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
                 // Fee paid on Bitcoin is < fees paid by withdrawer, so collect fees
                 feesCollected = withdrawal.fee - btcFeesPaid;
             } else {
-                // No change was returned as a new sweep, so 
+                // No change was returned as a new sweep, so there was an overpayment
                 feesOverpaid = btcFeesPaid - withdrawal.fee;
             }
 

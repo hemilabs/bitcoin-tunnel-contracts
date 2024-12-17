@@ -22,7 +22,7 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200,
+        runs: 5,
       },
       // viaIR: true, // Uncomment to run test coverage
       evmVersion: "cancun",

@@ -299,8 +299,9 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     event VaultClosingVerif();
     event VaultClosed();
 
-    event OperatorAdminUpdated(address indexed newOperatorAdmin);
-
+    event OperatorAdminUpdateInitiated(address indexed newOperatorAdmin);
+    event OperatorAdminUpdateCompleted(address indexed newOperatorAdmin);
+    event OperatorAdminUpdateRejected(address indexed newOperatorAdmin);
     /**
      * The onlyTunnelAdmin modifier is used on all functions that should *only* be callable by the
      * tunnelAdmin.
@@ -388,6 +389,9 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     // Address of the operator who runs this vault
     address public operatorAdmin;
 
+    // Address of the operator admin this vault is pending an update to
+    address public pendingActivationOperatorAdmin;
+
     SimpleBitcoinVaultState public vaultStateChild;
 
     SimpleBitcoinVaultUTXOLogicHelper utxoLogicHelper;
@@ -452,14 +456,43 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     }
 
     /**
-    * Updates the operator admin. Only callable by the current operatorAdmin.
+    * Begins the update process for the operatorAdmin address. Only callable by the current operatorAdmin.
     *
     * @param newOperatorAdmin The new operatorAdmin to set.
     */
-    function updateOperatorAdmin(address newOperatorAdmin) onlyOperatorAdmin notZeroAddress(newOperatorAdmin) external {
-        operatorAdmin = newOperatorAdmin;
-        vaultStateChild.updateOperatorAdmin(operatorAdmin);
-        emit OperatorAdminUpdated(operatorAdmin);
+    function initiateOperatorAdminUpdate(address newOperatorAdmin) onlyOperatorAdmin notZeroAddress(newOperatorAdmin) external {
+        pendingActivationOperatorAdmin = newOperatorAdmin;
+        emit OperatorAdminUpdateInitiated(operatorAdmin);
+    }
+
+    /**
+     * Reject (delete) a pending operatorAdmin update. Can be called by the current operatorAdmin or the
+     * new operator admin that the update would change the operatorAdmin to.
+     */
+    function rejectOperatorAdminUpdate() external {
+        require (msg.sender == operatorAdmin || msg.sender == pendingActivationOperatorAdmin,
+         "no permissions for operator admin upgrade rejection");
+         require(pendingActivationOperatorAdmin != address(0), "no operator update to reject");
+
+         // For event
+         address temp = pendingActivationOperatorAdmin; 
+         pendingActivationOperatorAdmin = address(0);
+         emit OperatorAdminUpdateRejected(temp);
+    }
+
+
+    /**
+     * Finalizes the pending operatorAdmin update. Only callable by the new operator admin as a form
+     * of accepting the role and proving that the address set for the upgrade was correct.
+     */
+    function finalizeOperatorAdminUpdate() external {
+        require(msg.sender == pendingActivationOperatorAdmin, 
+        "only pending new operator admin can finalize update");
+
+        operatorAdmin = pendingActivationOperatorAdmin;
+        vaultStateChild.updateOperatorAdmin(pendingActivationOperatorAdmin);
+        pendingActivationOperatorAdmin = address(0);
+        emit OperatorAdminUpdateCompleted(operatorAdmin);
     }
 
     /**
@@ -1222,7 +1255,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
     /**
      * Gets the net deposits of this vault, which is the total deposits held minus all pending
-     * withdrawals. Should only be used to determine
+     * withdrawals.
      * 
      * @return The net deposits of the vault in sats
     */

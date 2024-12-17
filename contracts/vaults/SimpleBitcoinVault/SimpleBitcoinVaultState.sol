@@ -270,8 +270,6 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         minWithdrawalFeeSats = _vaultConfig.getMinWithdrawalFeeSats();
         withdrawalFeeBps = _vaultConfig.getMinWithdrawalFeeBasisPoints();
 
-
-
         softCollateralizationThreshold = _vaultConfig.getSoftCollateralizationThreshold();
         hardCollateralizationThreshold = _vaultConfig.getHardCollateralizationThreshold();
     }
@@ -328,6 +326,14 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         if (parentVault.hasNeverGoneLive()) {
             // Update to soft collateralization threshold allowed immediately
             softCollateralizationThreshold = newSoftCollateralizationThreshold;
+
+            // As extra sanity check, make sure pending updates are zeroed out,
+            // even though it should be impossible for them to ever get set before
+            // hasNeverGoneLive() returns false, since the code below in this 
+            // function is the only code that assigns these variables to non-zero
+            // values.
+             pendingSoftCollateralizationThreshold = 0;
+             pendingSoftCollateralizationThresholdUpdateTime = 0;
             return;
         }
 
@@ -462,7 +468,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         require(newDepositFeeBps <= vaultConfig.getMaxDepositFeeBasisPoints(), 
         "new deposit fee in bps must be <= the maximum deposit fee in bps from config");
 
-        require(newDepositFeeBps != depositFeeBps, "new min deposit fee in bps is not different");
+        require(newDepositFeeBps != depositFeeBps, "new deposit fee in bps is not different");
 
         if (parentVault.hasNeverGoneLive()) {
             // Update to bps deposit fee allowed immediately
@@ -496,8 +502,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         "not enough time has elapsed for deposit fee bps update");
 
         depositFeeBps = pendingDepositFeeBps;
-        pendingDepositFeeBpsUpdateTime = 0;
         pendingDepositFeeBps = 0;
+        pendingDepositFeeBpsUpdateTime = 0;
         emit DepositFeeBpsUpdated(depositFeeBps);
     }
 
@@ -794,6 +800,13 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      * @param withdrawalAmount The amount of the withdrawal in satoshis
     */
     function saveWithdrawalFulfillment(uint32 uuid, bytes32 fulfillmentTxId, uint256 withdrawalAmount) external onlyParentVault {
+        require(withdrawalAmount == withdrawals[uuid].amount, "actual withdrawal amount does not match expected amount");
+        
+        // Ensure that withdrawal has not already been challenged.
+        require(withdrawalsChallenged[uuid] == false, "successfully challenged withdrawal cannot be fulfilled.");
+        
+        // Other checks (like ensuring withdrawal fulfillment has not already been processed) are done upstream
+
         // Save the association between the withdrawal and the txid which properly fulfilled it
         pendingWithdrawalCount--;
         withdrawalsToStatus[uuid] = fulfillmentTxId;
@@ -808,11 +821,34 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
 
         // Decrease the total deposits held by this vault on behalf of the protocol by the
         // withdrawal amount (including paid fees)
-        totalDepositsHeld -= withdrawalAmount;
+        if (withdrawalAmount > totalDepositsHeld) {
+            // This should never happen during normal operation as the withdrawal would not have 
+            // been allowed to be placed if its fulfillment would decrease the total deposits held
+            // below zero. However, there is an edge case during a full liquidation where an 
+            // operator could have successfully fulfilled the withdrawal despite being in 
+            // liquidation, and either a voluntary burning of hBTC or collateral purchase could 
+            // have decreased the total deposits held in expectation that further withdrawals would
+            // not be fulfilled. In this edge case, the operator loses out (which is fine because 
+            // they misbehaved resulting in a liquidation), but ensure we don't underflow.
+            totalDepositsHeld = 0;
+        } else {
+            totalDepositsHeld -= withdrawalAmount;
+        }
     }
 
+    /**
+     * Saves that a withdrawal has been successfully challenged to prevent repeat challenges.
+     * If this is called, then upstream will immediately allow a liquidation to occur if it
+     * it not already underway from previous operator misbehavior.
+     * However, we still remove the pending withdrawal and make the appropriate state updates
+     * to reflect that the withdrawal is no longer oustanding.
+     */
     function saveSuccessfulWithdrawalChallenge(uint32 uuid) external onlyParentVault {
         withdrawalsChallenged[uuid] = true;
+        pendingWithdrawalCount--;
+        removeWithdrawalFromPendingArray(uuid);
+        pendingWithdrawalAmountSat -= withdrawals[uuid].amount;
+
     }
 
     /**

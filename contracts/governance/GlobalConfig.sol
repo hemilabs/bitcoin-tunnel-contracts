@@ -1117,6 +1117,7 @@ contract GlobalConfig {
      * the address that the upgrade will update the globalConfigAdmin to in the future.
     */
     function rejectGlobalConfigAdminUpgrade() external senderPermissionCheck(pendingActivationGlobalConfigAdmin) {
+        require(pendingActivationGlobalConfigAdmin != address(0), "no global config admin upgrade to reject");
         address temp = address(pendingActivationGlobalConfigAdmin);
         pendingActivationGlobalConfigAdmin = address(0);
         globalConfigAdminUpgradeStartTime = 0;
