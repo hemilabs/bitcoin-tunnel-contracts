@@ -1439,7 +1439,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         require(block.timestamp <= maxAcceptanceTimestamp, 
         "this bid is no longer valid based on the max acceptance timestamp");
 
-        PartialLiquidation memory pl = partialLiquidationStatus[partialLiquidationCounter - 1];
+        PartialLiquidation storage pl = partialLiquidationStatus[partialLiquidationCounter - 1];
 
         // Make sure that this bid is for a smaller amount of collateral
         require(newBid < pl.currentBidAmount, "new bid is not low enough");
@@ -1477,7 +1477,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     function finalizePartialCollateralLiquidation() nonReentrant external {
         require(partialLiquidationInProgress, "no partial liquidation is in progress");
 
-        PartialLiquidation memory pl = partialLiquidationStatus[partialLiquidationCounter - 1];
+        PartialLiquidation storage pl = partialLiquidationStatus[partialLiquidationCounter - 1];
 
         require(pl.finished == false, "partial liquidation already completed");
 
