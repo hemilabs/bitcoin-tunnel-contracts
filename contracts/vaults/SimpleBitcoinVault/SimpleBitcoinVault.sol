@@ -1034,6 +1034,9 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         require(!vaultStateChild.isWithdrawalFulfilled(withdrawalIndex), 
         "withdrawal must not already be mapped to a fulfilling txid");
 
+        require(!vaultStateChild.isTransactionAcknowledgedWithdrawalFulfillment(txid), 
+        "transaction was already finalized");
+
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 
         require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS,
