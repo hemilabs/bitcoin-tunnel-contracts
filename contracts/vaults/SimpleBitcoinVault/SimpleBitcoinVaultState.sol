@@ -1191,7 +1191,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
 
         // Check if a partial liquidation is in progress, and if so stop it and return held bid funds
         if (partialLiquidationInProgress) {
-                PartialLiquidation memory pl = partialLiquidationStatus[partialLiquidationCounter - 1];
+                PartialLiquidation storage pl = partialLiquidationStatus[partialLiquidationCounter - 1];
                 btcTokenContract.transferFrom(address(this), pl.currentBidder, pl.amountSatsToRecover);
                 pl.finished = true;
                 partialLiquidationInProgress = false;
@@ -1303,7 +1303,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         require(block.timestamp <= maxAcceptanceTimestamp, 
         "this bid is no longer valid based on the max acceptance timestamp");
 
-        PartialLiquidation memory pl = partialLiquidationStatus[partialLiquidationCounter - 1];
+        PartialLiquidation storage pl = partialLiquidationStatus[partialLiquidationCounter - 1];
 
         // Make sure that this bid is for a smaller amount of collateral
         require(newBid < pl.currentBidAmount, "new bid is not low enough");
@@ -1338,7 +1338,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     function finalizePartialCollateralLiquidation() external {
         require(partialLiquidationInProgress, "no partial liquidation is in progress");
 
-        PartialLiquidation memory pl = partialLiquidationStatus[partialLiquidationCounter - 1];
+        PartialLiquidation storage pl = partialLiquidationStatus[partialLiquidationCounter - 1];
 
         require(pl.finished == false, "partial liquidation already completed");
 
