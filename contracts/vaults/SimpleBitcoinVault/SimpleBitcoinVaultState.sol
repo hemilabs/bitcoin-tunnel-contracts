@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
 import "../IBitcoinVault.sol";
 import "./SimpleGlobalVaultConfig.sol";
 import "./SimpleBitcoinVault.sol";
@@ -19,7 +21,7 @@ import "../../BTCToken.sol";
  *   - Pending collateral withdrawals
 */
 
-contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
+contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     event MinDepositFeeSatsUpdated(uint256 indexed newMinDepositFeeSats);
     event DepositFeeBpsUpdated(uint256 indexed newDepositFeeBps);
 
@@ -1150,7 +1152,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      *   - The *current* available collateral under the soft collateralization threshold, OR
      *   - The originally requested withdrawal amount
     */
-    function finalizePartialCollateralWithdrawal() external onlyOperatorAdmin {
+    function finalizePartialCollateralWithdrawal() nonReentrant onlyOperatorAdmin external {
         // Cannot perform a partial collateral withdrawal unless one has already been initiated
         require(isPendingPartialCollateralWithdrawal(), "there is no pending collateral withdrawal to finalize");
 
@@ -1202,7 +1204,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * The liquidation must run for at least 4 hours (FULL_LIQUIDATION_DEPOSIT_GRACE_PERIOD) to
      * allow any straggler deposits to be processed and the corresponding hBTC also liquidated.
     */
-    function beginFullCollateralLiquidation() external {
+    function beginFullCollateralLiquidation() nonReentrant external {
         // First, check the collateralization ratio
         IAssetPriceOracle oracle = vaultConfig.getPriceOracle();
         uint256 collateralUnitsToBTC = oracle.getAssetQuantityToBTC();
@@ -1282,7 +1284,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @param maxAcceptanceTimestamp The timestamp after which this bid is invalid
      * 
     */
-    function beginPartialLiquidation(uint256 startingBid, uint256 hBTCQuantity, uint256 maxAcceptanceTimestamp) external {
+    function beginPartialLiquidation(uint256 startingBid, uint256 hBTCQuantity, uint256 maxAcceptanceTimestamp) nonReentrant external {
         require(!partialLiquidationInProgress, 
         "there is already a partial liquidation in progress");
 
@@ -1336,7 +1338,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @param hBTCQuantity The  amount of hBTC the bidder will purchase (must match the amount to be liquidated)
      * @param maxAcceptanceTimestamp The timestamp after which this bid is invalid
     */
-    function bidOnPartialCollateralLiquidation(uint256 newBid, uint256 hBTCQuantity, uint256 maxAcceptanceTimestamp) external {
+    function bidOnPartialCollateralLiquidation(uint256 newBid, uint256 hBTCQuantity, uint256 maxAcceptanceTimestamp) nonReentrant external {
         require(partialLiquidationInProgress, "no partial liquidation is in progress");
 
         require(block.timestamp <= maxAcceptanceTimestamp, 
@@ -1374,7 +1376,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * Callable by anyone, but in practice only the winning bidder generally has a reason to
      * call this function and finalize the bid.
     */
-    function finalizePartialCollateralLiquidation() external {
+    function finalizePartialCollateralLiquidation() nonReentrant external {
         require(partialLiquidationInProgress, "no partial liquidation is in progress");
 
         PartialLiquidation storage pl = partialLiquidationStatus[partialLiquidationCounter - 1];
@@ -1436,7 +1438,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @param hBTCQuantity The quantity of hBTC the buyer wants to sell in exchange for collateral at the current price
      * @param recipient The recipient of the collateral. Optional, if not provided will default to msg.sender.
     */
-    function purchaseCollateralDuringFullLiquidation(uint256 hBTCQuantity, address recipient) external {
+    function purchaseCollateralDuringFullLiquidation(uint256 hBTCQuantity, address recipient) nonReentrant external {
         require(fullLiquidationStarted, "there is not an ongoing liquidation");
         require(totalDepositsHeld > 0, "there are no deposits to bid on currently");
 
@@ -1609,7 +1611,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * 
      * @param amountSats Amount of hBTC to burn from operator and credit towards vault's custodianship
     */
-    function voluntaryhBTCBurn(uint256 amountSats) onlyOperatorAdmin external {
+    function voluntaryhBTCBurn(uint256 amountSats) onlyOperatorAdmin nonReentrant external {
         bool success = btcTokenContract.transferFrom(operatorAdmin, address(parentVault), amountSats);
         require(success, "unable to transfer specified amount of hBTC from the operator");
 

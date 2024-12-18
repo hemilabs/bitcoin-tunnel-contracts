@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
 import "../IBitcoinVault.sol";
 import "./SimpleGlobalVaultConfig.sol";
 import "../VaultUtils.sol";
@@ -288,7 +290,7 @@ import "./SimpleBitcoinVaultUTXOLogicHelper.sol";
  * up collateral).
 */
 
-contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStructs {
+contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStructs, ReentrancyGuard {
     event CollateralDeposited(uint256 indexed amountDeposited, uint256 indexed totalCollateral);
     event CollateralWithdrawn(uint256 indexed amountWithdrawn, uint256 indexed totalCollateral);
 
@@ -479,7 +481,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      *
      * @param amount The amount (in atomic units) of collateral to deposit
     */
-    function depositCollateral(uint256 amount) public onlyOperatorAdmin returns (bool success) {
+    function depositCollateral(uint256 amount) public onlyOperatorAdmin nonReentrant returns (bool success) {
         // Make sure that a new vault cannot be initialized with less collateral than the config
         // requires
         if (vaultStatus == Status.CREATED) {
