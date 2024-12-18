@@ -1337,7 +1337,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     function isWithdrawalAvailable() external view returns (bool withdrawalAvailable) {
         if (vaultStatus == Status.LIVE || vaultStatus == Status.CLOSING_INIT) {
             uint256 available = getNetDeposits();
-            if (available > MINIMUM_WITHDRAWAL_SATS) {
+            if (available >= MINIMUM_WITHDRAWAL_SATS) {
                 return true;
             }
             return false;
@@ -1353,7 +1353,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     */
     function getWithdrawalLimits() external view returns (uint256 minWithdrawal, uint256 maxWithdrawal) {
         uint256 available = getNetDeposits();
-        if (available > MINIMUM_WITHDRAWAL_SATS) {
+        if (available >= MINIMUM_WITHDRAWAL_SATS) {
             return (MINIMUM_WITHDRAWAL_SATS, available);
         } else {
             return (0, 0);
