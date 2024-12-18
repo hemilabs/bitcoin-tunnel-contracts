@@ -756,8 +756,6 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
             "vault liquidation grace period elapsed");
         }
 
-        require(vaultStatus == Status.LIVE, "can only process a deposit on a live vault");
-
         // Check if the global config indicates that this vault should be deprecated, and if so
         // start the wind down
         if (vaultConfig.isVaultSystemDeprecated() && windDownTime == 0) {
