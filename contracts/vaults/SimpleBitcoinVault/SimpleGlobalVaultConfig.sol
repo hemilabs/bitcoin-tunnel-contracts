@@ -30,6 +30,11 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 * Some values are only set at initial construction and cannot be changed.
 */
 contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
+    event ConfigAdminUpdateCompleted(address indexed newConfigAdmin);
+    event PriceOracleImplementationUpdated(address indexed newPriceOracle);
+    event BitcoinKitUpgradesPermDisabled(address indexed currentBitcoinKit);
+    event MinCollateralAssetAmountUpdated(uint256 oldMinCollateralAssetAmount, uint256 newMinCollateralAssetAmount);
+
     /**
     * The onlyConfigAdmin modifier is used on all functions that should
     * *only* be callable by the configAdmin.
@@ -267,6 +272,7 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     */
     function updateConfigAdmin(address newConfigAdmin) external onlyConfigAdmin notZeroAddress(newConfigAdmin) {
         configAdmin = newConfigAdmin;
+        emit ConfigAdminUpdateCompleted(configAdmin);
     }
 
     /**
@@ -340,6 +346,7 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     */
     function updatePriceOracleImplementation(IAssetPriceOracle newPriceOracle) external senderPermissionCheck(oracleImplementationAdmin) notZeroAddress(address(newPriceOracle)) {
         priceOracle = newPriceOracle;
+        emit PriceOracleImplementationUpdated(address(newPriceOracle));
     }
 
     /**
@@ -415,6 +422,7 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
 
     function permDisableBitcoinKitUpgrades() external onlyConfigAdmin {
         bitcoinKitUpgradePermDisabled = true;
+        emit BitcoinKitUpgradesPermDisabled(address(bitcoinKitContract));
     }
 
     /**
@@ -425,7 +433,9 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     */
     function updateMinCollateralAssetAmount(uint256 newMinCollateralAssetAmount) external senderPermissionCheck(minCollateralAssetAmountAdmin) {
         require(newMinCollateralAssetAmount > minCollateralAssetAmount, "the minimum collateral asset amount can only be increased");
+        uint256 oldMinCollateralAssetAmount = minCollateralAssetAmount;
         minCollateralAssetAmount = newMinCollateralAssetAmount;
+        emit MinCollateralAssetAmountUpdated(oldMinCollateralAssetAmount, minCollateralAssetAmount);
     }
 
     /**

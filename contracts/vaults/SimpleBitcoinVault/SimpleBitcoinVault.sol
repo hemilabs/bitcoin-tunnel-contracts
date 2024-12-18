@@ -294,7 +294,11 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     event CollateralDeposited(uint256 indexed amountDeposited, uint256 indexed totalCollateral);
     event CollateralWithdrawn(uint256 indexed amountWithdrawn, uint256 indexed totalCollateral);
 
+    event VaultInitializing();
     event VaultLive();
+    event VaultClosingInit();
+    event VaultClosingVerif();
+    event VaultClosed();
 
     event PartialLiquidationStarted(uint256 satsToRepurchase, uint256 startingBid);
 
@@ -509,6 +513,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
             // requirements before an upgrade that they don't use until later allowing them
             // to effectively bypass increased minimum collateral requirements for new vaults
             minCollateralAmount = vaultConfig.getMinCollateralAssetAmount();
+            emit VaultInitializing();
         }
 
         emit CollateralDeposited(amount, totalCollateral);
@@ -666,6 +671,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         require(block.timestamp >= windDownTime, "wind down time has not yet occurred");
         require(vaultStatus == Status.LIVE, "can only wind down a vault that is currently live");
         vaultStatus = Status.CLOSING_INIT;
+        emit VaultClosingInit();
     }
 
     /**
@@ -681,6 +687,8 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         // never again hold, BTC on behalf of the protocol so it can be set directly to closed.
         vaultStatus = Status.CLOSED;
         returnAllCollateralToOperatorAdmin();
+        emit VaultClosed();
+        
     }
 
     /**
@@ -719,6 +727,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
         returnAllCollateralToOperatorAdmin();
         totalPendingFeesCollected = 0;
+        emit VaultClosed();
     }
 
     /** 
@@ -759,6 +768,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
             // Special case if we're past the windDownTime but the vault has not been set to
             // CLOSING_INIT yet. Set to CLOSING_INIT and return a failed deposit.
             vaultStatus = Status.CLOSING_INIT;
+            emit VaultClosingInit();
             return (false, 0, 0, address(0));
         }
 
@@ -933,6 +943,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
             // custodied, change the vault to CLOSING_VERIF
             if (pendingWithdrawalAmountSat == depositsHeld) {
                 vaultStatus = Status.CLOSING_VERIF;
+                emit VaultClosingVerif();
             }
         }
 

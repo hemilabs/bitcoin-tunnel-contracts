@@ -25,6 +25,7 @@ contract GlobalConfig {
     event GlobalConfigAdminUpgradeInitiated(address indexed newGlobalConfigAdmin);
     event GlobalConfigAdminUpgradeCompleted(address indexed newGlobalConfigAdmin);
     event GlobalConfigAdminUpgradeRejected(address indexed newGlobalConfigAdmin);
+    event GlobalConfigAdminUpgradeDelayIncreased(uint256 indexed newDelay);
 
     // Vault factory upgrade events
     event VaultFactoryUpgradeInitiated(address indexed newVaultFactory);
@@ -68,6 +69,7 @@ contract GlobalConfig {
     event BitcoinKitAddrUpgradeInitiated(address indexed newBitcoinKitAddr);
     event BitcoinKitAddrUpgradeCompleted(address indexed newBitcoinKitAddr);
     event BitcoinKitAddrUpgradeRejected(address indexed rejectedBitcoinKitAddr);
+    event BitcoinKitUpgradeDelayIncreased(uint256 indexed newDelay);
 
     /**
      * The onlyGlobalConfigAdmin modifier is used on all functions that should *only* be callable by
@@ -1084,6 +1086,8 @@ contract GlobalConfig {
 
         require(newDelay > bitcoinKitUpgradeDelay, "new delay must be longer than current delay");
         bitcoinKitUpgradeDelay = newDelay;
+
+        emit BitcoinKitUpgradeDelayIncreased(newDelay);
     }
 
     /**
@@ -1151,5 +1155,7 @@ contract GlobalConfig {
 
         require(newDelay > globalConfigAdminUpgradeDelay, "new delay must be longer than current delay");
         globalConfigAdminUpgradeDelay = newDelay;
+
+        emit GlobalConfigAdminUpgradeDelayIncreased(newDelay);
     }
 }

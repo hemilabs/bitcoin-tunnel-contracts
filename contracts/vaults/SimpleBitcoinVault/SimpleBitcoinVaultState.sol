@@ -28,6 +28,17 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     event MinWithdrawalFeeSatsUpdated(uint256 indexed newMinWithdrawalFeeSats);
     event WithdrawalFeeBpsUpdated(uint256 indexed newWIthdrawalFeeBps);
 
+    event SoftCollateralizationThresholdIncreaseInit(uint256 currentThreshold, uint256 newThreshold);
+    event SoftCollateralizationThresholdIncreaseFinalized(uint256 previousThreshold, uint256 newThreshold);
+    event SoftCollateralizationThresholdDecreased(uint256 previousThreshold, uint256 newThreshold);
+
+    event PartialLiquidationStarted(uint256 satsToRepurchase, uint256 startingBid);
+    event PartialLiquidationBid(address indexed bidder, uint256 satsToRepurchase, uint256 newBid);
+    event PartialLiquidationFinalized(address indexed auctionWinner, uint256 satsRepurchased, uint256 finalBid);
+
+    event FullLiquidationStarted(uint256 satsToRepurchase, uint256 startingPricePerBTC);
+    event FullLiquidationCollateralPurchased(address indexed buyer, uint256 satsLiquidated, uint256 collateralSold, uint256 pricePerBTC);
+
     struct PartialLiquidation {
         uint256 amountSatsToRecover;
         uint256 startTimestamp;
@@ -309,6 +320,9 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         }
 
         if (newSoftCollateralizationThreshold < softCollateralizationThreshold) {
+            // For event
+            uint256 previous = softCollateralizationThreshold;
+
             // The threshold is being lowered which increases the deposits this vault can accept,
             // so can be applied immediately as it does not affect in-progress user deposits.
              softCollateralizationThreshold = newSoftCollateralizationThreshold;
@@ -316,11 +330,14 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
              // Clear any other pending update
              pendingSoftCollateralizationThreshold = 0;
              pendingSoftCollateralizationThresholdUpdateTime = 0;
+
+             emit SoftCollateralizationThresholdDecreased(previous, softCollateralizationThreshold);
         } else {
             // The threshold is being raised, which lowers the deposits this vault can accept,
             // so has to be applied after an activation period.
             pendingSoftCollateralizationThreshold = newSoftCollateralizationThreshold;
             pendingSoftCollateralizationThresholdUpdateTime = block.timestamp;
+            emit SoftCollateralizationThresholdIncreaseInit(softCollateralizationThreshold, pendingSoftCollateralizationThreshold);
         }
     }
 
@@ -344,15 +361,20 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         require(pendingSoftCollateralizationThresholdUpdateTime != 0, "no pending soft collateralization update is in progress");
 
         require(pendingSoftCollateralizationThresholdUpdateTime + SOFT_COLLATERALIZATION_THRESHOLD_INCREASE_DELAY_SECONDS <= block.timestamp, 
-        "not enough time has elapsed for collateralization threshold increase");
+         "not enough time has elapsed for collateralization threshold increase");
 
         // Check again for extra protection, should never be possible.
         require(pendingSoftCollateralizationThreshold > vaultConfig.getSoftCollateralizationThreshold(),
          "new soft collateralization threshold must be higher than or equal to minimum from config");
 
-         softCollateralizationThreshold = pendingSoftCollateralizationThreshold;
-         pendingSoftCollateralizationThresholdUpdateTime = 0;
-         pendingSoftCollateralizationThreshold = 0;
+        // For event
+        uint256 previous = softCollateralizationThreshold;
+
+        softCollateralizationThreshold = pendingSoftCollateralizationThreshold;
+        pendingSoftCollateralizationThresholdUpdateTime = 0;
+        pendingSoftCollateralizationThreshold = 0;
+
+        emit SoftCollateralizationThresholdIncreaseFinalized(previous, softCollateralizationThreshold);
     }
 
     /**
@@ -1254,6 +1276,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         fullLiquidationStarted = true;
         fullLiquidationStartTime = block.timestamp;
         fullLiquidationStartingPrice = (collateralUnitsToBTC * 105) / 100;
+
+        emit FullLiquidationStarted(totalDepositsHeld, fullLiquidationStartingPrice);
     }
 
 
@@ -1336,6 +1360,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
 
         // A partial liquidation is now in progress
         partialLiquidationInProgress = true;
+
+        emit PartialLiquidationStarted(hBTCQuantity, startingBid);
     }
 
     /**
@@ -1377,6 +1403,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         pl.currentBidAmount = newBid;
         pl.currentBidTime = block.timestamp;
         pl.currentBidder = msg.sender;
+
+        emit PartialLiquidationBid(msg.sender, hBTCQuantity, newBid);
     }
 
     /**
@@ -1438,6 +1466,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
 
         pl.finished = true;
         partialLiquidationInProgress = false;
+
+        emit PartialLiquidationFinalized(pl.currentBidder, pl.amountSatsToRecover, pl.currentBidAmount);
     }
 
     /**
@@ -1485,6 +1515,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         // Not setting the vault to closed yet, because we could be still within the full liquidation
         // grace period meaning more deposits could be accepted which would require further liquidation.
         // Operator must close the vault themselves which will check that condition.
+        emit FullLiquidationCollateralPurchased(msg.sender, hBTCQuantity, collateralAmountOfSale, currentPricePerBTC);
     }
 
     /**
