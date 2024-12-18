@@ -1094,9 +1094,9 @@ contract GlobalConfig {
      * Begins the upgrade process for the globalConfigAdmin address, which sets
      * pendingActivationBitcoinKitAddr and sets the bitcoinKitUpgradeStartTime to the current time.
      *
-     * If there is already a pending bitcoinKitAddr upgrade, it will be replaced with this new
-     * IBitcoinKit implementation and the countdown to upgrade activation will be reset (meaning the
-     * previous not-yet-activated IBitcoinKit implmenetation will never become active).
+     * If there is already a pending globalConfigAdmin upgrade, it will be replaced with this new
+     * global config admin and the countdown to upgrade activation will be reset (meaning the
+     * previous not-yet-updated globalConfigAdmin address will never be used).
      * 
      * @param newGlobalConfigAdminAddr The new IBitcoinKit implementation to upgrade to after the upgrade delay
     */

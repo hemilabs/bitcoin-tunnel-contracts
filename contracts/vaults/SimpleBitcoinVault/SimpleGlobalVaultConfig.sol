@@ -102,8 +102,8 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     // For example, "20" means a maximum withdrawal fee of 0.20%.
     uint256 public maxWithdrawalFeeBasisPoints;
 
-    // A one-time latch that only configAdmin can set to permanently disable future
-    // updates to the IBitcoinKit implementation.
+    // The BitcoinKit implementation that SimpleBitcoinVaults referencing
+    // this global config will use
     IBitcoinKit public bitcoinKitContract;
 
     // Permanently disable upgrading of Bitcoin Kit implementation

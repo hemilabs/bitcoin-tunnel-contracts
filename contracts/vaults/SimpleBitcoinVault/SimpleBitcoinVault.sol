@@ -300,10 +300,6 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     event VaultClosingVerif();
     event VaultClosed();
 
-    event PartialLiquidationStarted(uint256 satsToRepurchase, uint256 startingBid);
-
-    event FullLiquidationStarted(uint256 satsToRepurchase, uint256 startingPrice);
-
     /**
      * The onlyTunnelAdmin modifier is used on all functions that should *only* be callable by the
      * tunnelAdmin.
@@ -495,11 +491,16 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
         require(!isWindingDown(), "cannot deposit collateral to a vault that is winding down");
 
-        // Do not check for minimum collateral amount here - allow multiple indepdent deposits to
+        uint256 expectedBalance = vaultConfig.getPermittedCollateralAssetContract().balanceOf(address(this)) + amount;
+
+        // Do not check for minimum collateral amount here - allow multiple independent deposits to
         // add up to the minimum collateral amount if needed for going live.
         bool depositSuccessful = vaultConfig.getPermittedCollateralAssetContract().transferFrom(msg.sender, address(this), amount);
 
         require(depositSuccessful, "collateral deposit to vault was not successful");
+
+        require(expectedBalance == vaultConfig.getPermittedCollateralAssetContract().balanceOf(address(this)),
+        "collateral asset balance did not increase as expected from the collateral deposit");
 
         uint256 totalCollateral = vaultStateChild.creditOperatorCollateralDeposit(amount);
 
@@ -856,8 +857,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * @param operator The address of the operator to process a collected fee mintage for (passed through)
      * @param amountToMint The amount of collected fees to mint
     */
-    function mintOperatorFees(address operator, uint256 amountToMint) external onlyTunnelAdmin returns (bool success, uint256 sats) {
-        require(operator == operatorAdmin, "operator fees can only be minted by tunnel admin");
+    function mintOperatorFees(address operator, uint256 amountToMint) external onlyOperatorAdminPassthrough(operator) returns (bool success, uint256 sats) {
         require(totalPendingFeesCollected > 0, "there must be a non-zero number of pending fees to mint operator fees");
         require(amountToMint <= totalPendingFeesCollected, "cannot mint more operator fees than have been collected");
 

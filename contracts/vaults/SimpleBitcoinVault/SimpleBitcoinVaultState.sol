@@ -94,7 +94,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     uint256 public constant WITHDRAWAL_FEE_INCREASE_DELAY_SECONDS = 1 * 60 * 60; // 1 hour
 
     // At most 10 withdrawals can be pending at a time
-    uint256 public constant MAX_WITHDRAWAL_QUEUE_SIZE = 10;
+    uint256 public constant MAX_WITHDRAWAL_ARRAY_SIZE = 10;
 
     // The operatorAdmin is stored here as well as in the parent for efficiency. For many vault
     // administration tasks like modifying soft collateralization thresholds, updating minimum fees,
@@ -174,7 +174,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     // maintained so that an invalid outgoing transaction from the vault can be cross-referenced
     // against a bounded number of pending withdrawals, rather than requiring a challenge-response
     // system.
-    Withdrawal[MAX_WITHDRAWAL_QUEUE_SIZE] pendingWithdrawals;
+    Withdrawal[MAX_WITHDRAWAL_ARRAY_SIZE] pendingWithdrawals;
 
     // All of the withdrawals by UUID mapped to the TxID that fulfilled them, or if not yet
     // fulfilled to bytes32(0).
@@ -269,7 +269,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      *
      * @return _parentVault The parent SimpleBitcoinVault that this child SimpleBitcoinVaultState manages state for.
     */
-    function getParentSimpleBitcoinVault() external view returns (SimpleBitcoinVault _parentVault) {
+    function getParentSimpleBitcoinVault() external view returns (SimpleBitcoinVault) {
         return parentVault;
     }
 
@@ -364,7 +364,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
          "not enough time has elapsed for collateralization threshold increase");
 
         // Check again for extra protection, should never be possible.
-        require(pendingSoftCollateralizationThreshold > vaultConfig.getSoftCollateralizationThreshold(),
+        require(pendingSoftCollateralizationThreshold >= vaultConfig.getSoftCollateralizationThreshold(),
          "new soft collateralization threshold must be higher than or equal to minimum from config");
 
         // For event
@@ -669,7 +669,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      * @return pendingWithdrawalAmount How much is pending withdrawals in sats
     */
     function internalInitializeWithdrawal(uint256 amount, uint256 fee, uint256 timestampRequested, bytes memory destinationScript, address evmOriginator) external onlyParentVault returns (uint32 withdrawalNum, uint256 pendingWithdrawalAmount) {
-        require(pendingWithdrawalCount < MAX_WITHDRAWAL_QUEUE_SIZE, 
+        require(pendingWithdrawalCount < MAX_WITHDRAWAL_ARRAY_SIZE, 
         "there are too many pending withdrawals in this vault");
 
         Withdrawal memory withdrawal = Withdrawal(withdrawalCounter, 
@@ -679,7 +679,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         pendingWithdrawalAmountSat += amount;
         withdrawalCounter++;
         pendingWithdrawalCount++;
-        saveWithdrawalInQueue(withdrawal);
+        saveWithdrawalInPendingArray(withdrawal);
         return (withdrawalCounter - 1, pendingWithdrawalAmountSat);
     }
 
@@ -690,8 +690,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
       * 
       * @return index The index in the pending withdrawals array where the withdrawal was saved
      */
-    function saveWithdrawalInQueue(Withdrawal memory withdrawal) private returns (uint32 index) {
-        for (uint32 i = 0; i < MAX_WITHDRAWAL_QUEUE_SIZE; i++) {
+    function saveWithdrawalInPendingArray(Withdrawal memory withdrawal) private returns (uint32 index) {
+        for (uint32 i = 0; i < MAX_WITHDRAWAL_ARRAY_SIZE; i++) {
             // Amount can only be zero when the index returns a 0-value struct (does not exist).
             if (pendingWithdrawals[i].amount == 0) {
                 pendingWithdrawals[i] = withdrawal;
@@ -701,12 +701,13 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     }
 
     /**
-      * Removes a withdrawal, identified by the withdrawal's unique counter/uuid from the queue.
+      * Removes a withdrawal, identified by the withdrawal's unique counter/uuid from the pending
+      * withdrawals array.
       * 
       * @param uniqueWithdrawalCounter The unique counter of the withdrawal to remove
      */
-    function removeWithdrawalFromQueue(uint32 uniqueWithdrawalCounter) private {
-        for (uint32 i = 0; i < MAX_WITHDRAWAL_QUEUE_SIZE; i++) {
+    function removeWithdrawalFromPendingArray(uint32 uniqueWithdrawalCounter) private {
+        for (uint32 i = 0; i < MAX_WITHDRAWAL_ARRAY_SIZE; i++) {
             if (pendingWithdrawals[i].withdrawalCounter == uniqueWithdrawalCounter) {
                 delete(pendingWithdrawals[i]);
                 return;
@@ -714,8 +715,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         }
 
         // This should be impossible as this function is only called once per withdrawal which must
-        // be already in the queue
-        revert("unable to remove withdrawal from queue");
+        // be already in the array
+        revert("unable to remove withdrawal from pending withdrawals array");
     }
 
     /**
@@ -729,7 +730,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      * @return matchFound Whether the scriptHash and outputAmount match at least one pending withdrawal
     */
     function checkPendingWithdrawalsForMatch(bytes32 scriptHash, uint256 outputAmount) external view returns (bool matchFound) {
-        for (uint32 i = 0; i < MAX_WITHDRAWAL_QUEUE_SIZE; i++) {
+        for (uint32 i = 0; i < MAX_WITHDRAWAL_ARRAY_SIZE; i++) {
             Withdrawal memory toCheck = pendingWithdrawals[i];
             if (toCheck.amount != 0) {
                 // This is an actual withdrawal, not an empty withdrawal struct.
@@ -758,7 +759,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      *
      * @param uuid The UUID of the withdrawal to return
      *
-     * @return storedWithdrawal The withdrawal stored at that index. If the withdrawal does not exist, will return a zero-filled struct.
+     * @return storedWithdrawal The withdrawal stored at that index. If the withdrawal does not exist, will revert.
     */
     function getWithdrawal(uint32 uuid) external view returns (Withdrawal memory storedWithdrawal) {
         require(uuid < withdrawalCounter, "withdrawal does not exist");
@@ -785,8 +786,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         withdrawalsToStatus[uuid] = fulfillmentTxId;
         acknowledgedWithdrawalTxids[fulfillmentTxId] = true;
 
-        // Remove the withdrawal from the pending withdrawals queue
-        removeWithdrawalFromQueue(uuid);
+        // Remove the withdrawal from the pending withdrawals array
+        removeWithdrawalFromPendingArray(uuid);
 
         // Decrease the amount of sats pending withdrawal by the withdrawal amount (including paid
         // fees)
@@ -807,7 +808,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     function saveSuccessfulWithdrawalChallenge(uint32 uuid) external onlyParentVault {
         withdrawalsChallenged[uuid] = true;
         pendingWithdrawalCount--;
-        removeWithdrawalFromQueue(uuid);
+        removeWithdrawalFromPendingArray(uuid);
         pendingWithdrawalAmountSat -= withdrawals[uuid].amount;
 
     }
@@ -1250,7 +1251,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
             uint256 collateralCostOfDepositedBTC = collateralUnitsToBTC * totalDepositsHeld / 100_000_000; 
 
             uint256 collateralRatio = (depositedCollateralBalance * 100) / collateralCostOfDepositedBTC;
-            if (collateralRatio >= vaultConfig.getHardCollateralizationThreshold()) {
+            if (collateralRatio >= hardCollateralizationThreshold) {
                 revert("no operator misbheavior and hard collateral threshold has not been surpassed");
             }
             fullLiquidationAllowed = true;
@@ -1260,7 +1261,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         if (partialLiquidationInProgress) {
                 PartialLiquidation storage pl = partialLiquidationStatus[partialLiquidationCounter - 1];
 
-                bool success =  btcTokenContract.transferFrom(address(this), pl.currentBidder, pl.amountSatsToRecover);
+                bool success =  btcTokenContract.transfer(pl.currentBidder, pl.amountSatsToRecover);
                 if (!success) {
                     // This should be impossible but if it does happen, then revert here and wait for
                     // the partial collateral bid to win, after which full liquidation will be possible.
