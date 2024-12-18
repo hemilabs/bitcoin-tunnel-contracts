@@ -1292,7 +1292,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         Withdrawal memory withdrawal = vaultStateChild.getWithdrawal(uuid);
 
         require(!vaultStateChild.isWithdrawalFulfilled(uuid), "withdrawal was successfully processed");
-        require(vaultStateChild.isWithdrawalAlreadyChallenged(uuid), "withdrawal has already been challenged");
+        require(!vaultStateChild.isWithdrawalAlreadyChallenged(uuid), "withdrawal has already been challenged");
 
         if (block.timestamp < withdrawal.timestampRequested + WITHDRAWAL_GRACE_PERIOD_SECONDS) {
             revert("the withdrawal grace period has not elapsed");
