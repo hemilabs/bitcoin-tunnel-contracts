@@ -1453,7 +1453,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     */
     function getCurrentFullLiquidationCollateralPrice() public view returns (uint256 collateralAtomicUnitsPerBTC) {
         uint256 secondsSinceLiquidationStart = block.timestamp - fullLiquidationStartTime;
-        uint256 increasePerPeriod = (fullLiquidationStartingPrice * FULL_LIQUIDATION_INCREASE_INCREMENT_BPS / 10000) - fullLiquidationStartingPrice;
+        uint256 increasePerPeriod = (fullLiquidationStartingPrice * FULL_LIQUIDATION_INCREASE_INCREMENT_BPS / 10000);
         uint256 incrementPeriods = secondsSinceLiquidationStart / FULL_LIQUIDATION_INCREASE_TIME;
 
         return fullLiquidationStartingPrice + (increasePerPeriod * incrementPeriods);
