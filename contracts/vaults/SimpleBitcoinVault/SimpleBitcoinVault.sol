@@ -682,7 +682,11 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         // Withdraw entire deposited balance, which also returns collateral tokens the operator sent to the
         // contract directly and did not get credited for.
         uint256 balance = vaultConfig.getPermittedCollateralAssetContract().balanceOf(address(this));
-        vaultConfig.getPermittedCollateralAssetContract().transfer(operatorAdmin, balance);
+
+        bool success = vaultConfig.getPermittedCollateralAssetContract().transfer(operatorAdmin, balance);
+        if (!success) {
+            revert("unable to return collateral to operator");
+        }
     }
 
     /**

@@ -1224,7 +1224,14 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         // Check if a partial liquidation is in progress, and if so stop it and return held bid funds
         if (partialLiquidationInProgress) {
                 PartialLiquidation storage pl = partialLiquidationStatus[partialLiquidationCounter - 1];
-                btcTokenContract.transferFrom(address(this), pl.currentBidder, pl.amountSatsToRecover);
+
+                bool success =  btcTokenContract.transferFrom(address(this), pl.currentBidder, pl.amountSatsToRecover);
+                if (!success) {
+                    // This should be impossible but if it does happen, then revert here and wait for
+                    // the partial collateral bid to win, after which full liquidation will be possible.
+                    revert("unable to transfer hBTC to previous bidder");
+                }
+
                 pl.finished = true;
                 partialLiquidationInProgress = false;
         }
@@ -1377,6 +1384,31 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         require(pl.currentBidTime + PARTIAL_LIQUIDATION_BID_TIME <= block.timestamp, 
         "bid is not old enough");
 
+        // First, transfer the collateral to the highest bidder
+        bool collateralTransferSuccess = vaultConfig.getPermittedCollateralAssetContract().transfer(pl.currentBidder, pl.currentBidAmount);
+        if (!collateralTransferSuccess) {
+            // This should be impossible and indicates a critical issue like not enough
+            // collateral existing in the vault to pay the bidder, if this happens
+            // then attempt to return the hBTC that was bid and finish the partial
+            // liquidation without decreasing the total deposits held.
+            bool returnSuccess = btcTokenContract.transfer(pl.currentBidder, pl.amountSatsToRecover);
+            if (!returnSuccess) {
+                // Vault was unable to pay the bidder with collateral and was unable
+                // to return the hBTC that was used to bid. This should be impossible.
+                revert("unable to transfer collateral to bidder or process a refund");
+            } else {
+                // Mark partial collateral liquidation as done, but do not decrease
+                // total deposits held.
+                pl.finished = true;
+                partialLiquidationInProgress = false;
+
+                // Since the partial liquidation was not successful, add the unfulfilled partial
+                // collateral liquidation amount back
+                pendingPartialLiquidationSats += pl.amountSatsToRecover;
+                return;
+            }
+        }
+
         // Transfer the hBTC to burn to the parent vault who can call the burn method on
         // BitcoinTunnelManager
         bool intermediateTransferResult = btcTokenContract.transferFrom(address(this), address(parentVault), pl.amountSatsToRecover);
@@ -1389,7 +1421,6 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         // Decrease the total BTC deposits held by this vault by the amount that was burnt
         totalDepositsHeld = totalDepositsHeld - pl.amountSatsToRecover;
 
-        vaultConfig.getPermittedCollateralAssetContract().transfer(pl.currentBidder, pl.currentBidAmount);
         depositedCollateralBalance = depositedCollateralBalance - pl.currentBidAmount;
 
         pl.finished = true;
