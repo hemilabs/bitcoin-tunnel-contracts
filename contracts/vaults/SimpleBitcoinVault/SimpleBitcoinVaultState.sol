@@ -832,7 +832,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * 
      * @param amount The amount of hBTC that the operator burnt which should be removed from totalDepositsHeld
     */
-    function decreaseTotalDepositsHeldFromOperatorBurning(uint256 amount) public onlyParentVault {
+    function decreaseTotalDepositsHeldFromOperatorBurning(uint256 amount) private {
         require(amount <= totalDepositsHeld, "cannot decrease totalDepositsHeld by more than its entire value");
         totalDepositsHeld -= amount;
     }
@@ -1506,17 +1506,33 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @return remainingFees The fees remaining after counting fees against any pending partial liquidations
     */
     function processCollectedFeesToDecrementPartialPendingLiquidation(uint256 fees) public onlyParentVault returns (uint256 remainingFees) {
+        return permissionedDecrementPartialPendingLiquidationImpl(fees);
+    }
+
+    /**
+     * Decreases the partial pending liquidation sats by up to the provided amount in sats, returning
+     * any excess sats which were left over beyond the total pendingPartialLiquidationSats if applicable.
+     * 
+     * Private and only callable by functions in this contract which themselves must guard to make sure
+     * the reduction is appropriately authorized.
+     * 
+     * @param maxReduction The maximum number of satoshis to reduce the partial pending liquidation by
+     * 
+     * @return unused The remaining sats if any above and beyond what was required to zero out the partial
+     *                pending liquidation
+     */
+    function permissionedDecrementPartialPendingLiquidationImpl(uint256 maxReduction) private returns (uint256 unused) {
         if (pendingPartialLiquidationSats > 0) {
-            if (fees > pendingPartialLiquidationSats) {
+            if (maxReduction > pendingPartialLiquidationSats) {
                 uint256 temp = pendingPartialLiquidationSats;
                 pendingPartialLiquidationSats = 0;
-                return fees - temp;
+                return maxReduction - temp;
             } else {
-                pendingPartialLiquidationSats = pendingPartialLiquidationSats - fees;
+                pendingPartialLiquidationSats = pendingPartialLiquidationSats - maxReduction;
                 return 0;
             }
         }
-        return fees;
+        return maxReduction;
     }
 
     /**
@@ -1572,7 +1588,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
 
         // First, burned amount is removed from any pending but not-yet-active partial liquidations.
         // If no partial liquidation is waiting, this will return the full amount back as remaining.
-        uint256 remaining = processCollectedFeesToDecrementPartialPendingLiquidation(amountSats);
+        uint256 remaining = permissionedDecrementPartialPendingLiquidationImpl(amountSats);
 
         // Then, burned hBTC is compared against the net deposits.
         // The operator cannot burn more hBTC than the net deposits, and can not be used
