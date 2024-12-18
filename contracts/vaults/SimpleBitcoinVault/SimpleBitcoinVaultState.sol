@@ -925,11 +925,11 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     }
 
     /**
-     * Determines whether the operator can initiate a new collateral withdrawal.
+     * Determines whether the operator can initiate a new partial collateral withdrawal.
      * 
      * @return collateralWithdrawalAllowed Whether the operator can initiate a new collateral withdrawal
     */
-    function canOperatorInitiateCollateralWithdraw() external view returns (bool collateralWithdrawalAllowed) {
+    function canOperatorInitiatePartialCollateralWithdrawal() public view returns (bool collateralWithdrawalAllowed) {
         if (isPendingPartialCollateralWithdrawal()) {
             return false; // Cannot withdraw collateral if a partial collateral withdrawal is already in progress
         }
@@ -941,11 +941,10 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         // Should never be a state where fullLiquidationAllowed = false but fullLiquidationStarted = true, but check both
         // as extra sanity check
         if (fullLiquidationAllowed || fullLiquidationStarted) {
-            if (fullLiquidationDone) {
-                 return true;
-            } else {
-            return false; // Cannot withdraw collateral if a full liquidation is allowed/started but not completed
-            }
+            // After a full liquidation is allowed, there is no need to ever initiate a partial collateral withdrawal.
+            // When the full liquidation is complete, the operator will close the vault through the SimpleBitcoinVault
+            // by calling closeVaultAfterFullLiquidation() which will return all collateral.
+            return false;
         }
 
         return true;
@@ -1128,15 +1127,14 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         // Cannot withdraw zero atomic units
         require(desiredWithdrawalAmount > 0, "withdrawal amount must not be zero");
 
-        // Ensure there is not already a pending withdrawal
-        require(!isPendingPartialCollateralWithdrawal(), "cannot initiate a partial collateral withdrawal when one is already pending");
+        require(canOperatorInitiatePartialCollateralWithdrawal(), "operator cannot initiate collateral withdraw");
 
         uint256 freeCollateral = getFreeCollateral();
 
         // Ensure that the desired withdrawal amount does not exceed the amount
         // of free collateral currently available in the vault.
         // This behavior could be loosened to allow larger requests that will
-        // be eventually be modified based on the actual free collateral available
+        // eventually be modified based on the actual free collateral available
         // at withdrawal finalization.
         require(desiredWithdrawalAmount <= freeCollateral, "desired withdrawal amount must be less than free collateral");
 
