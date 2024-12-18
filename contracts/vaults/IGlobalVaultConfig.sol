@@ -2,7 +2,6 @@
 pragma solidity ^0.8.25;
 
 import "../bitcoinkit/IBitcoinKit.sol";
-import "../bitcoinkit/BitcoinKit.sol";
 
 /**
  * Implementation of the IGlobalVaultConfig contract serves to hold all of the configuration

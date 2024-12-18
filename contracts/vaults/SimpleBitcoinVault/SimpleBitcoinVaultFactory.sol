@@ -7,7 +7,6 @@ import "./SimpleGlobalVaultConfig.sol";
 import "./ISimpleBitcoinVaultFactoryHelper.sol";
 import "./ISimpleBitcoinVaultStateFactory.sol";
 import "./SimpleBitcoinVaultUTXOLogicHelper.sol";
-import "../../bitcoinkit/BitcoinKit.sol";
 import "../../bitcoinkit/IBitcoinKit.sol";
 
 /**

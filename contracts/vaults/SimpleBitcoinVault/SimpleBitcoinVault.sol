@@ -9,7 +9,6 @@ import "../VaultUtils.sol";
 import "./SimpleBitcoinVaultState.sol";
 import "./ISimpleBitcoinVaultStateFactory.sol";
 import "../../BitcoinTunnelManager.sol";
-import "../../oracles/IAssetPriceOracle.sol";
 import "../../BTCToken.sol";
 import "./SimpleBitcoinVaultStructs.sol";
 import "./SimpleBitcoinVaultUTXOLogicHelper.sol";
@@ -670,7 +669,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         }
 
         require(block.timestamp >= windDownTime, "wind down time has not yet occurred");
-        require(vaultStatus == Status.LIVE, "can only wind down a vault that is currently live");
+        require(vaultStatus == Status.LIVE, "can only wind down a live vault");
         vaultStatus = Status.CLOSING_INIT;
         emit VaultClosingInit();
     }
@@ -681,8 +680,8 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     */
     function closeVaultAfterFullLiquidation() external onlyOperatorAdmin {
         require(vaultStateChild.isFullLiquidationStarted(), "a full liquidation has not yet started");
-        require(vaultStateChild.hasFullLiquidationDepositGracePeriodElapsed(), "the full liquidation deposit grace period has not elapsed");
-        require(vaultStateChild.getTotalDepositsHeld() == 0, "there are still unliquidated net deposits held by the vault");
+        require(vaultStateChild.hasFullLiquidationDepositGracePeriodElapsed(), "the full liquidation deposit grace period is ongoing");
+        require(vaultStateChild.getTotalDepositsHeld() == 0, "there are unliquidated net deposits held by the vault");
 
         // If the above conditions have been met, then this vault no longer holds, and will
         // never again hold, BTC on behalf of the protocol so it can be set directly to closed.
@@ -754,7 +753,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     function confirmDeposit(bytes32 txid, uint256 outputIndex, bytes memory) external onlyTunnelAdmin returns (bool success, uint256 totalDepositSats, uint256 netDepositSats, address depositor) {
         if (vaultStateChild.isFullLiquidationStarted()) {
             require(!vaultStateChild.hasFullLiquidationDepositGracePeriodElapsed(), 
-            "vault has been in liquidation for more than the grace period");
+            "vault liquidation grace period elapsed");
         }
 
         require(vaultStatus == Status.LIVE, "can only process a deposit on a live vault");
@@ -776,7 +775,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 
         require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS, 
-        "btc deposit has not achieved sufficient confirmations");
+        "btc deposit is not confirmed");
 
         uint256 depositFeeSats = 0;
 
@@ -895,32 +894,32 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     */
     function initiateWithdrawal(bytes memory destinationScript, uint256 amountSats, address originator) external onlyTunnelAdmin returns (bool success, uint256 feeSats, uint32 uuid) {
         require(amountSats <= getNetDeposits(), 
-        "vault cannot process a withdrawal for more than its net deposits");
+        "withdrawal exceeds net deposits");
 
         require(amountSats >= MINIMUM_WITHDRAWAL_SATS, 
-        "vault cannot process a withdrawal lower than its minimum withdrawal");
+        "withdrawal is lower than minimum");
 
         require(destinationScript.length >= MIN_VALID_BTC_SCRIPT_SIZE, 
-        "withdrawal destination script must be at least the minimum permitted script size");
+        "withdrawal destination script to small");
 
         require(destinationScript.length <= MAX_VALID_BTC_SCRIPT_SIZE, 
-        "withdrawal destination script must be no larger than the maximum permitted script size");
+        "withdrawal destination script too large");
 
         require(vaultStatus == Status.LIVE || vaultStatus == Status.CLOSING_INIT, 
         "can only process a withdrawal on a live or closing_init vault");
 
         require(!vaultStateChild.isFullLiquidationStarted(), 
-        "vault is being fully liquidated and cannot accept withdrawals.");
+        "vault is being fully liquidated and cannot accept withdrawals");
 
         require(keccak256(destinationScript) != bitcoinCustodyAddressScriptHash, 
-        "cannot initiate a withdrawal that withdraws to this vault's custodianship btc address");
+        "cannot initiate a withdrawal to this vault's address");
 
         uint256 depositsHeld = vaultStateChild.getTotalDepositsHeld();
 
         uint256 pendingWithdrawalAmount = vaultStateChild.getPendingWithdrawalAmountSat();
 
         require(pendingWithdrawalAmount + amountSats <= depositsHeld, 
-        "cannot withdraw more sats than is held by vault");
+        "cannot withdraw more sats than vault holds");
 
         uint256 withdrawalFeeSats = vaultStateChild.calculateWithdrawalFee(amountSats);
 
@@ -985,7 +984,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 
         require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS,
-         "btc withdrawal has not achieved sufficient confirmations");
+        "btc withdrawal not confirmed");
 
         (uint256 feesOverpaid, uint256 feesCollected, uint256 withdrawalAmount, 
         bool createdOutput, uint256 newSweepUTXOValue) =
@@ -1085,7 +1084,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         if (currentSweepUTXO != bytes32(0)) {
             // There is already a sweep UTXO set, so only replace it if abandoning is allowed.
             require(abandonExistingUTXO, 
-            "cannot assign a confirmed deposit as sweep UTXO when one already exists and abandoning is not permitted");
+            "sweep utxo exists and abandoning not permitted");
 
             uint256 abandonedUTXOValue = currentSweepUTXOValue;
             if (abandonedUTXOValue <= totalPendingFeesCollected) {
@@ -1236,11 +1235,11 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     function challengeWithdrawal(uint32 uuid, bytes memory) external onlyTunnelAdmin returns (bool success, uint256 satsToCredit, address withdrawer) {
         Withdrawal memory withdrawal = vaultStateChild.getWithdrawal(uuid);
 
-        require(!vaultStateChild.isWithdrawalFulfilled(uuid), "this withdrawal was already successfully processed");
+        require(!vaultStateChild.isWithdrawalFulfilled(uuid), "withdrawal was successfully processed");
         require(vaultStateChild.isWithdrawalAlreadyChallenged(uuid), "withdrawal has already been challenged");
 
         if (block.timestamp < withdrawal.timestampRequested + WITHDRAWAL_GRACE_PERIOD_SECONDS) {
-            revert("the withdrawal grace period has not elapsed, and the operator can still process this withdrawal");
+            revert("the withdrawal grace period has not elapsed");
         }
 
         // The withdrawal has not been fulfilled and the time has elapsed, so sender should be
@@ -1278,15 +1277,14 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * @return success Whether or not the TxID was determined to prove an improper outgoing transaction and the vault can be liquidated
      */
     function reportInvalidSweepSpend(bytes32 txid, uint32 inputIndexToBlame) external returns (bool success) {
-        require(vaultStatus != Status.CLOSED, 
-        "vault is closed and operator owns all BTC remaining in custodianship address");
+        require(vaultStatus != Status.CLOSED, "vault is closed");
 
         require(!vaultStateChild.isFullCollateralLiquidationAllowed(), 
-        "a full liquidation is already allowed and this function would have no effect");
+        "a full liquidation is already allowed");
 
         // Make sure this txid hasn't already been acknowledged as a valid withdrawal fulfillment
         require(!vaultStateChild.isTransactionAcknowledgedWithdrawalFulfillment(txid), 
-        "transaction has already been accepted as a valid withdrawal fulfillment");
+        "transaction was accepted as valid withdrawal");
 
         // We do not check for confirmations as any transaction which is invalid leads to liquidation
         // even if it is later reorged out of the Bitcoin chain, because the operator misbehaved for it
@@ -1323,11 +1321,10 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * @param inputIndexToBlame The index of the input which performs the invalid confirmed deposit UTXO spend
      */
     function reportInvalidConfirmedDepositSpend(bytes32 txid, uint32 inputIndexToBlame) external returns (bool success) {
-        require(vaultStatus != Status.CLOSED, 
-        "vault is closed and operator owns all BTC remaining in custodianship address");
+        require(vaultStatus != Status.CLOSED, "vault is closed");
 
         require(!vaultStateChild.isFullCollateralLiquidationAllowed(), 
-        "a full liquidation is already allowed and this function would have no effect");
+        "a full liquidation is already allowed");
 
         // We do not check for confirmations as any transaction which is invalid leads to
         // liquidation even if it is later reorged out of the Bitcoin chain, because the operator

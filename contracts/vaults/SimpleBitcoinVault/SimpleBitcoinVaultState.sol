@@ -688,9 +688,9 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
       * 
       * @param withdrawal The withdrawal to save in pending withdrawals
       * 
-      * @return index The index in the pending withdrawals array where the withdrawal was saved
+      * @return The index in the pending withdrawals array where the withdrawal was saved
      */
-    function saveWithdrawalInPendingArray(Withdrawal memory withdrawal) private returns (uint32 index) {
+    function saveWithdrawalInPendingArray(Withdrawal memory withdrawal) private returns (uint32) {
         for (uint32 i = 0; i < MAX_WITHDRAWAL_ARRAY_SIZE; i++) {
             // Amount can only be zero when the index returns a 0-value struct (does not exist).
             if (pendingWithdrawals[i].amount == 0) {
@@ -698,6 +698,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
                 return i;
             }
         }
+        revert("no room in pending withdrawals array to save new withdrawal");
     }
 
     /**

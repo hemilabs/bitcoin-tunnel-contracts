@@ -155,7 +155,7 @@ contract GlobalConfig {
     // A mapping storing deprecated vaults. Not used in any of the Bitcoin Tunnel System contracts,
     // only provided for external contracts/services to easily check previous vault factories and
     // the status of each vault that they deployed.
-    mapping(uint32 => IVaultFactory) deprecatedVaultFactories;
+    mapping(uint32 => IVaultFactory) public deprecatedVaultFactories;
 
     // The timestamp at which a new VaultFactory was added by an admin
     uint256 public vaultUpgradeStartTime;
@@ -699,11 +699,16 @@ contract GlobalConfig {
         // When a vault factory upgrade is finalized, deprecate the old vault factory
         vaultFactory.deprecate();
 
+        deprecatedVaultFactories[vaultFactoryUpgradeCount] = vaultFactory;
+
         // Set the vault factory to the new implementation
         vaultFactory = pendingActivationVaultFactory;
         vaultFactory.activateFactory();
         pendingActivationVaultFactory = IVaultFactory(address(0));
         vaultUpgradeStartTime = 0;
+
+        vaultFactoryUpgradeCount++;
+
         emit VaultFactoryUpgradeCompleted(address(vaultFactory));
     }
 
