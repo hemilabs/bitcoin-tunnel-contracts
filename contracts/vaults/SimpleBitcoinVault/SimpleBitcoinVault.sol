@@ -401,7 +401,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     // the vault, and will not change to reflect changes in the SimpleGlobalVaultConfig. This is to
     // prevent a future increase in the collateral amount required to effect vaults which were
     // created before the increase went into place.
-    uint256 minCollateralAmount;
+    uint256 public minCollateralAmount;
 
     // Bitcoin custodian address
     string public bitcoinCustodyAddress;
