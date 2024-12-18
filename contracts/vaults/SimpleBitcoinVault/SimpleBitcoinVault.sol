@@ -599,8 +599,17 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * confirmed.
     */
     function windDownVault() external onlyOperatorAdmin {
-        // When called externally, use current timestamp plus the wind down grace period
-        windDownVaultImpl(block.timestamp + WIND_DOWN_DEPOSIT_GRACE_PERIOD);
+        if (vaultConfig.isVaultSystemDeprecated()) {
+            // If the vault system is deprecated, set the wind down time to the correct
+            // time based on the deprecation time of the vault system, rather than the
+            // current time. This prevents an operator from being able to keep their vault
+            // open slightly longer than the expected deprecation time would suggest.
+            windDownVaultImpl(vaultConfig.vaultSystemDeprecationTime() + WIND_DOWN_DEPOSIT_GRACE_PERIOD);
+        } else {
+            // When called voluntarily, use current timestamp plus the wind down grace period
+            windDownVaultImpl(block.timestamp + WIND_DOWN_DEPOSIT_GRACE_PERIOD);
+        }
+
     }
 
     /**
@@ -637,6 +646,13 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * Status.CLOSING_INIT. Callable by anyone.
     */
     function finalizeWindDown() external {
+        require(isWindingDown(), "vault must be winding down to finalize");
+
+        if (windDownTime == 0 && vaultConfig.isVaultSystemDeprecated()) {
+            // Vault system is deprecated, so set windDownTime based on the deprecation time
+            windDownTime = vaultConfig.vaultSystemDeprecationTime() + WIND_DOWN_DEPOSIT_GRACE_PERIOD;
+        }
+
         require(block.timestamp >= windDownTime, "wind down time has not yet occurred");
         require(vaultStatus == Status.LIVE, "can only wind down a vault that is currently live");
         vaultStatus = Status.CLOSING_INIT;
