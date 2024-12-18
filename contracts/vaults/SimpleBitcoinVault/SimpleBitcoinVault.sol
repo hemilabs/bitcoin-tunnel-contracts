@@ -1182,7 +1182,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     function challengeWithdrawal(uint32 uuid, bytes memory) external onlyTunnelAdmin returns (bool success, uint256 satsToCredit, address withdrawer) {
         Withdrawal memory withdrawal = vaultStateChild.getWithdrawal(uuid);
 
-        require(vaultStateChild.isWithdrawalFulfilled(uuid), "this withdrawal was already successfully processed");
+        require(!vaultStateChild.isWithdrawalFulfilled(uuid), "this withdrawal was already successfully processed");
         require(vaultStateChild.isWithdrawalAlreadyChallenged(uuid), "withdrawal has already been challenged");
 
         if (block.timestamp < withdrawal.timestampRequested + WITHDRAWAL_GRACE_PERIOD_SECONDS) {
