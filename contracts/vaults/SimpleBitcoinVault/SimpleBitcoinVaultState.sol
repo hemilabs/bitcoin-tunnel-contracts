@@ -1158,7 +1158,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
 
         // Cannot perform a partial collateral withdrawal if a partial liquidation is in progress or
         // could be triggered
-        require(!partialLiquidationInProgress && (pendingPartialLiquidationSats > 0), 
+        require(!partialLiquidationInProgress && (pendingPartialLiquidationSats == 0), 
         "there is a partial liquidation authorized or in progress");
 
         // Cannot perform a partial collateral withdrawal if a full liquidation is active.
