@@ -207,7 +207,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
                                 bytes32 vaultCustodyScriptHash, 
                                 bytes32 currentSweepUTXO, 
                                 uint256 currentSweepUTXOOutput,
-                                SimpleBitcoinVaultState vaultStateChild) external view returns (uint256 sweptValue, uint256 netDepositValue, uint256 newSweepOutputValue, bytes32[] memory sweptDeposits) {
+                                SimpleBitcoinVaultState vaultStateChild) external view returns (int256 sweptValue, uint256 netDepositValue, uint256 newSweepOutputValue, bytes32[] memory sweptDeposits) {
         require(sweepTxId != bytes32(0), "sweep txid cannot be zero");
 
         require(bitcoinKit.transactionExists(sweepTxId), "sweep transaction is not known by hVM");
@@ -215,22 +215,22 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         // Get the actual withdrawal transaction from Bitcoin based on the txid
         Transaction memory btcTx = bitcoinKit.getTransactionByTxId(sweepTxId);
 
-        require(btcTx.totalInputs >= 2 && btcTx.totalInputs <= 8, 
+        require(btcTx.totalInputs >= 2 && btcTx.totalInputs <= 8,
         "a sweep transaction must have at least two inputs and no more than eight");
-        
+
         require(btcTx.totalOutputs == 1, "a sweep transaction must have a single output");
 
         Input memory oldSweep = btcTx.inputs[0];
-        require(oldSweep.inputTxId == currentSweepUTXO && oldSweep.sourceIndex == currentSweepUTXOOutput, 
+        require(oldSweep.inputTxId == currentSweepUTXO && oldSweep.sourceIndex == currentSweepUTXOOutput,
         "first input of sweep must consume old sweep UTXO");
 
-        // Ensures that the output of this sweep goes to the Bitcoin script associated with this 
+        // Ensures that the output of this sweep goes to the Bitcoin script associated with this
         // vault's BTC custodianship address
-        require(vaultCustodyScriptHash == keccak256(btcTx.outputs[0].script), 
+        require(vaultCustodyScriptHash == keccak256(btcTx.outputs[0].script),
         "sweep transaction must output funds to this vault's BTC custodianship address");
 
         uint256 oldSweepValue = btcTx.inputs[0].inValue;
-        
+
         // The value of all swept deposits minus their respective charged fees
         netDepositValue = 0;
 
@@ -239,7 +239,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         uint256 totalFees = 0;
 
         // The deposit txids that are swept to mark as fees collected by caller
-        sweptDeposits = new bytes32[](btcTx.inputs.length - 1);        
+        sweptDeposits = new bytes32[](btcTx.inputs.length - 1);
 
         // Loop through all remaining inputs, checking that they are each a confirmed deposit that
         // has not already been swept
@@ -252,9 +252,9 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
             // depositFee is set to 0.
             require(depositFee > 0, "deposit fee must be greater than zero, either not acknowledged or already swept");
 
-            // Make sure that the input index is the same as the output index of the deposit 
+            // Make sure that the input index is the same as the output index of the deposit
             // transaction that was confirmed
-            require(vaultStateChild.getDepositOutputIndex(depositIn.inputTxId) == depositIn.sourceIndex, 
+            require(vaultStateChild.getDepositOutputIndex(depositIn.inputTxId) == depositIn.sourceIndex,
             "sweep must spend the input using an input index that matches the output index of the confirmed deposit");
 
             uint256 inValue = depositIn.inValue;
@@ -268,7 +268,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
         Output memory newSweep = btcTx.outputs[0];
 
         // Calculate the net amount swept as the value of the output minus the original sweep value
-        sweptValue = newSweep.outValue - oldSweepValue;
+        sweptValue = int256(newSweep.outValue) - int256(oldSweepValue);
 
         return (sweptValue, netDepositValue, newSweep.outValue, sweptDeposits);
     }

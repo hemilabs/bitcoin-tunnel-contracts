@@ -1132,12 +1132,12 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     function processSweep(bytes32 sweepTxId) external {
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 
+        (int256 sweptValue, uint256 netDepositValue, uint256 newSweepOutputValue, bytes32[] memory sweptDeposits) =
+        utxoLogicHelper.checkSweepValidity(sweepTxId, bitcoinKit, bitcoinCustodyAddressScriptHash,
+        currentSweepUTXO, currentSweepUTXOOutput, vaultStateChild);
+
         require(bitcoinKit.getTxConfirmations(sweepTxId) >= MIN_BITCOIN_CONFIRMATIONS,
          "btc sweep tx not confirmed");
-
-        (uint256 sweptValue, uint256 netDepositValue, uint256 newSweepOutputValue, bytes32[] memory sweptDeposits) = 
-        utxoLogicHelper.checkSweepValidity(sweepTxId, bitcoinKit, bitcoinCustodyAddressScriptHash, 
-        currentSweepUTXO, currentSweepUTXOOutput, vaultStateChild);
 
         // Save fees collected for all consumed inputs, not done in checkSweepValidity so that
         // function doesn't mutate state (as it does not have permissions to call the
@@ -1151,22 +1151,29 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         // If the sweptValue is less than the netDepositValue, then the operator had to spend more
         // BTC fees than they charged users for, so try to take it out of the operator's collected
         // fees. If there are not enough collected fees to cover, then start a partial liquidation.
-        if (sweptValue < netDepositValue) {
-            uint256 diff = netDepositValue - sweptValue;
+        if (sweptValue < int256(netDepositValue)) {
+            // If sweptValue is negative, then it indicates that the output of the sweep was less
+            // than the consumed sweep input, and this math will account for this difference.
+            // For example if netDepositValue = 1000 sats and sweptValue = -100 (output was 100 sats
+            // less than original sweep input), then (1000 - (-100)) = 1100 which is the net difference
+            // we must make up for through taking fees and/or allowing a partial pending liquidation.
+            uint256 diff = uint256(int256(netDepositValue) - sweptValue);
             if (diff <= totalPendingFeesCollected) {
                 totalPendingFeesCollected = totalPendingFeesCollected - diff;
             } else {
                 diff = diff - totalPendingFeesCollected;
                 totalPendingFeesCollected = 0;
 
-                // Reamining diff needs to be liquidated
+                // Remaining diff needs to be liquidated
                 vaultStateChild.creditPartialPendingLiquidationSats(diff);
             }
         } else {
             // If the sweptValue is more than netDepositValue, then the difference is the operator's
             // collected fees (Bitcoin transaction fee already removed by sweptValue being
-            // calculated from the actual output value)
-            creditOperatorWithFees(sweptValue - netDepositValue);
+            // calculated from the actual output value).
+            // Here sweptValue must always be positive as it was not less than netDepositValue which
+            // is a uint256, so conversion is safe.
+            creditOperatorWithFees(uint256(sweptValue) - netDepositValue);
         }
 
         currentSweepUTXO = sweepTxId;
