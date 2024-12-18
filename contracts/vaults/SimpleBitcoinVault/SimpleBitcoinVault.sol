@@ -536,8 +536,13 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         UTXO[] memory utxos = bitcoinKit.getUTXOsForBitcoinAddress(btcAddress, 0, 1);
         require(utxos.length == 0, "btc custodianship address cannot have any utxos");
 
-        bitcoinCustodyAddress = btcAddress;
         bitcoinCustodyAddressScriptHash = keccak256(script);
+
+        // If the script hash corresponding to the BTC custodianship address is already used,
+        // this call will revert.
+        vaultConfig.markBtcCustodianshipScriptHashUsed(bitcoinCustodyAddressScriptHash);
+
+        bitcoinCustodyAddress = btcAddress;
         bitcoinCustodyAddressSet = true;
     }
 

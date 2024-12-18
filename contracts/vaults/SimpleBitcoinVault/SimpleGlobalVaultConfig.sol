@@ -171,10 +171,20 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     // The address able to deprecate vaults. Set at construction and not changed.
     address public vaultDeprecationAdmin;
 
+    // The address of the factory which deploys vaults and will inform this
+    // SimpleGlobalVaultConfig of new deployments
+    address public vaultDeploymentAdmin;
+
+    // Mapping storing all deployed vaults using this config
+    mapping(address => bool) public deployedVaults;
+
+    // Mapping of hashes of Bitcoin custodianship script hashes that are in use by vaults
+    mapping(bytes32 => bool) public usedBtcCustodianshipScriptHashes;
+
 
 
     constructor(address configAdminToSet, 
-                address vaultDeprecationAdminToSet,
+                address vaultFactoryAddress,
                 uint256 initialMinDepositFeeBasisPoints,
                 uint256 initialMaxDepositFeeBasisPoints,
                 uint256 initialMinWithdrawalFeeBasisPoints,
@@ -201,7 +211,8 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
         bitcoinKitContractAdmin =                configAdminToSet;
         minCollateralAssetAmountAdmin =          configAdminToSet;
 
-        vaultDeprecationAdmin = vaultDeprecationAdminToSet;
+        vaultDeprecationAdmin = vaultFactoryAddress;
+        vaultDeploymentAdmin = vaultFactoryAddress;
 
         permittedCollateralAssetContract = _permittedCollateralAssetContract;
         minCollateralAssetAmount =          initialMinCollateralAssetAmount;
@@ -216,6 +227,24 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
         minWithdrawalFeeBasisPoints =       initialMinWithdrawalFeeBasisPoints;
         maxWithdrawalFeeBasisPoints =       initialMaxWithdrawalFeeBasisPoints;
         bitcoinKitContract =                initialBitcoinKitContract;
+    }
+
+    function markBtcCustodianshipScriptHashUsed(bytes32 scriptHash) external {
+        require(deployedVaults[msg.sender] == true, "only deployed vaults can mark a BTC custodian script hash as used");
+        require(scriptHash != bytes32(0), "script hash must not be zero");
+        require(!usedBtcCustodianshipScriptHashes[scriptHash], "script hash is already in use");
+        usedBtcCustodianshipScriptHashes[scriptHash] = true;
+    }
+
+    /**
+     * When the SimpleBitcoinVaultFactory deploys a new vault, it calls this function
+     * to inform this config contract of the new vault.
+     * 
+     * @param newVault Address of the newly deployed vault
+     */
+    function saveNewVaultDeployment(address newVault) external notZeroAddress(newVault) {
+        require(msg.sender == vaultDeploymentAdmin, "only vault deployment admin can save new vaults in config");
+        deployedVaults[newVault] = true;
     }
 
     /**
