@@ -350,8 +350,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
     // hVM already runs at least 2 blocks behind the Bitcoin tip, so these
     // are each 6 (2 + 4) confirmations in practice under normal hVM operation.
-    uint32 public constant MIN_BITCOIN_CONFIRMATIONS_FOR_DEPOSIT = 4;
-    uint32 public constant MIN_BITCOIN_CONFIRMATIONS_FOR_WITHDRAWAL_FINALIZATION = 4;
+    uint32 public constant MIN_BITCOIN_CONFIRMATIONS = 4;
 
     // Limit the maximum number of pending withdrawals allowed, to limit worst-case gas costs when
     // analyzing the entire withdrawal queue is required (ex: confirming that a withdrawal is
@@ -756,7 +755,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 
-        require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS_FOR_DEPOSIT, 
+        require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS, 
         "btc deposit has not achieved sufficient confirmations");
 
         uint256 depositFeeSats = 0;
@@ -962,7 +961,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
 
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 
-        require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS_FOR_WITHDRAWAL_FINALIZATION,
+        require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS,
          "btc withdrawal has not achieved sufficient confirmations");
 
         (uint256 feesOverpaid, uint256 feesCollected, uint256 withdrawalAmount, 
@@ -1128,6 +1127,9 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     */
     function processSweep(bytes32 sweepTxId) external {
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
+
+        require(bitcoinKit.getTxConfirmations(sweepTxId) >= MIN_BITCOIN_CONFIRMATIONS,
+         "btc sweep tx not confirmed");
 
         (uint256 sweptValue, uint256 netDepositValue, uint256 newSweepOutputValue, bytes32[] memory sweptDeposits) = 
         utxoLogicHelper.checkSweepValidity(sweepTxId, bitcoinKit, bitcoinCustodyAddressScriptHash, 
