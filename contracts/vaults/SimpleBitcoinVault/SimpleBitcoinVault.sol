@@ -750,6 +750,13 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         // function returning a failure boolean and it not being caught appropriately here.
         require(success, "deposit confirmation was not successful for an unspecified reason");
 
+        totalDepositSats = netDepositSats + depositFeeSats;
+
+        // Ensure that this deposit does not cause the vault to exceed its soft collateralization
+        // threshold (even after the fees are collected in future).
+        require(!vaultStateChild.doesDepositExceedSoftCollateralThreshold(totalDepositSats), 
+        "deposit would exceed soft collateralization threshold");
+
         // Total deposits held on behalf of the protocol is increased by the amount after fees, but
         // operator does not get their portion of fees until they sweep (if required - see special
         // case where no sweep UTXO exists right below)
