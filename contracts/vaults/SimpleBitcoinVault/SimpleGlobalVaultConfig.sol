@@ -65,7 +65,7 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * permitted fee is 10%, or 1000 basis points.
     */
     modifier feeWithinBounds(uint256 fee) {
-        require (fee < 10 * 100);
+        require (fee <= 10 * 100);
         _;
     }
 
