@@ -307,6 +307,9 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * @param newMinDepositFeeBasisPoints The new minDepositFeeBasisPoints to set
     */
     function updateMinDepositFees(uint256 newMinDepositFeeSats, uint256 newMinDepositFeeBasisPoints) external senderPermissionCheck(minDepositFeeAdmin) feeWithinBounds(newMinDepositFeeBasisPoints) {
+        require(newMinDepositFeeSats <= maxDepositFeeSats, "new min deposit fee sats must be <= current max deposit fee sats");
+        require(newMinDepositFeeBasisPoints <= maxDepositFeeBasisPoints, "new min deposit fee bps must be <= current max deposit fee bps");
+        
         minDepositFeeSats = newMinDepositFeeSats;
         minDepositFeeBasisPoints = newMinDepositFeeBasisPoints;
         emit MinDepositFeesUpdated(newMinDepositFeeSats, newMinDepositFeeBasisPoints);
@@ -319,6 +322,9 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * @param newMaxDepositFeeBasisPoints The new maxDepositFeeBasisPoints to set
     */
     function updateMaxDepositFees(uint256 newMaxDepositFeeSats, uint256 newMaxDepositFeeBasisPoints) external senderPermissionCheck(maxDepositFeeAdmin) feeWithinBounds(newMaxDepositFeeBasisPoints) {
+        require(newMaxDepositFeeSats >= minDepositFeeSats, "new max deposit fee sats must be >= current min deposit fee sats");
+        require(newMaxDepositFeeBasisPoints >= minDepositFeeBasisPoints, "new max deposit fee bps must be >= current min deposit fee bps");
+        
         maxDepositFeeSats = newMaxDepositFeeSats;
         maxDepositFeeBasisPoints = newMaxDepositFeeBasisPoints;
         emit MaxDepositFeesUpdated(newMaxDepositFeeSats, newMaxDepositFeeBasisPoints);
@@ -331,6 +337,9 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * @param newMinWithdrawalFeeBasisPoints The new minWithdrawalFeeBasisPoints to set
     */
     function updateMinWithdrawalFees(uint256 newMinWithdrawalFeeSats, uint256 newMinWithdrawalFeeBasisPoints) external senderPermissionCheck(minWithdrawalFeeAdmin) feeWithinBounds(newMinWithdrawalFeeBasisPoints) {
+        require(newMinWithdrawalFeeSats <= maxWithdrawalFeeSats, "new min withdrawal fee sats must be <= current max withdrawal fee sats");
+        require(newMinWithdrawalFeeBasisPoints <= maxWithdrawalFeeBasisPoints, "new max withdrawal fee bps must be <= current max withdrawal fee bps");
+
         minWithdrawalFeeSats = newMinWithdrawalFeeSats;
         minWithdrawalFeeBasisPoints = newMinWithdrawalFeeBasisPoints;
         emit MinWithdrawalFeesUpdated(newMinWithdrawalFeeSats, newMinWithdrawalFeeBasisPoints);
@@ -343,6 +352,9 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     * @param newMaxWithdrawalFeeBasisPoints The new maxWithdrawalFeeBasisPoints to set
     */
     function updateMaxWithdrawalFees(uint256 newMaxWithdrawalFeeSats, uint256 newMaxWithdrawalFeeBasisPoints) external senderPermissionCheck(maxWithdrawalFeeAdmin) feeWithinBounds(newMaxWithdrawalFeeBasisPoints) {
+        require(newMaxWithdrawalFeeSats >= minWithdrawalFeeSats, "new max withdrawal fee sats must be >= current min withdrawal fee sats");
+        require(newMaxWithdrawalFeeBasisPoints >= minWithdrawalFeeBasisPoints, "new max withdrawal fee bps must be >= current min withdrawal fee bps");
+        
         maxWithdrawalFeeSats = newMaxWithdrawalFeeSats;
         maxWithdrawalFeeBasisPoints = newMaxWithdrawalFeeBasisPoints;
         emit MaxWithdrawalFeesUpdated(newMaxWithdrawalFeeSats, newMaxWithdrawalFeeBasisPoints);
