@@ -916,7 +916,7 @@ contract GlobalConfig {
     function pauseWithdrawals() external senderPermissionCheck(withdrawalPauseAdmin) {
         require(!withdrawalPausingPermDisabled, "withdrawal pausing is permanently disabled");
 
-        // if check so that we don't emit an event if withdrwaals are already paused
+        // if check so that we don't emit an event if withdrawals are already paused
         if (!withdrawalsPaused) {
             withdrawalsPaused = true;
             emit WithdrawalsPaused();

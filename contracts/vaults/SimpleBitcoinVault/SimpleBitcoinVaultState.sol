@@ -12,7 +12,7 @@ import "./SimpleBitcoinVaultStructs.sol";
 import "../../BTCToken.sol";
 
 /**
- * The SimpleBitcoinVaultState offloads holding and updating much of the state requierd for
+ * The SimpleBitcoinVaultState offloads holding and updating much of the state required for
  * operation of a SimpleBitcoinVault:
  *   - Minimum collateral amount in atomic units (fixed at construction based on config at time)
  *   - Soft and hard collateralization thresholds
@@ -26,7 +26,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     event DepositFeeBpsUpdated(uint256 indexed newDepositFeeBps);
 
     event MinWithdrawalFeeSatsUpdated(uint256 indexed newMinWithdrawalFeeSats);
-    event WithdrawalFeeBpsUpdated(uint256 indexed newWIthdrawalFeeBps);
+    event WithdrawalFeeBpsUpdated(uint256 indexed newWithdrawalFeeBps);
 
     event SoftCollateralizationThresholdIncreaseInit(uint256 currentThreshold, uint256 newThreshold);
     event SoftCollateralizationThresholdIncreaseFinalized(uint256 previousThreshold, uint256 newThreshold);
@@ -101,7 +101,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     // and initiating partial collateral withdrawals, the operator will interact directly with the
     // SimpleBitcoinVaultState contract. An update to operatorAdmin can only be initiated at the
     // SimpleBitcoinVault level which will call the update function here to perform the
-    // corersponding update.
+    // corresponding update.
     address public operatorAdmin;
 
     // The SimpleBitcoinVault that this SimpleBitcoinVaultState holds and updates state for
@@ -302,7 +302,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      * If the threshold is being decreased (meaning the vault can custody more BTC) then the change goes
      * into effect immediately.
      *
-     * If the threshold is being increaesd (meaning the vault can custody less BTC) then the change is
+     * If the threshold is being increased (meaning the vault can custody less BTC) then the change is
      * queued and must be finalized later after the soft collateralization threshold increase delay has
      * elapsed, otherwise the change could unfairly effect pending deposits made based on the previous
      * higher amount of BTC the vault was able to custody.
@@ -355,7 +355,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      * threshold will still be in force during the activation delay. Once activated, the updated
      * soft collateralization threshold is applied to new deposits, but requires withdrawals or
      * additional collateral deposits to bring the vault down to the operator's desired true
-     * collateralzation utilization.
+     * collateralization utilization.
     */
     function finalizeSoftCollateralizationThresholdUpdate() external {
         require(pendingSoftCollateralizationThresholdUpdateTime != 0, "no pending soft collateralization update is in progress");
@@ -1146,7 +1146,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      * value) there are only 55_000 units available, then if the operator specified a quantity >=
      * 55_000, they would only be able to withdraw 55_000 during finalization.
      * 
-     * @param desiredWithdrawalAmount The amount of collateral the operator wants to withdaw, in atomic units
+     * @param desiredWithdrawalAmount The amount of collateral the operator wants to withdraw, in atomic units
      * 
     */
     function initiatePartialCollateralWithdrawal(uint256 desiredWithdrawalAmount) external onlyOperatorAdmin {
@@ -1253,7 +1253,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
 
             uint256 collateralRatio = (depositedCollateralBalance * 100) / collateralCostOfDepositedBTC;
             if (collateralRatio >= hardCollateralizationThreshold) {
-                revert("no operator misbheavior and hard collateral threshold has not been surpassed");
+                revert("no operator misbehavior and hard collateral threshold has not been surpassed");
             }
             fullLiquidationAllowed = true;
         }
@@ -1343,7 +1343,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
             require(previousLiquidation.finished, "a partial liquidation is already in progress");
         }
 
-        // Transfer the spedified amount of hBTC to this contract to submit a bona-fide bid
+        // Transfer the specified amount of hBTC to this contract to submit a bona-fide bid
         bool transferResult = btcTokenContract.transferFrom(msg.sender, address(this), hBTCQuantity);
         require(transferResult, "specified hBTC could not be collected");
 
@@ -1389,7 +1389,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         require(newBid < pl.currentBidAmount, "new bid is not low enough");
         require(hBTCQuantity == pl.amountSatsToRecover, "amount of hBTC is incorrect");
 
-        // Transfer the spedified amount of hBTC to this contract to submit a bona-fide bid
+        // Transfer the specified amount of hBTC to this contract to submit a bona-fide bid
 
         bool transferResult = btcTokenContract.transferFrom(msg.sender, address(this), hBTCQuantity);
         require(transferResult, "specified hBTC count could not be collected");

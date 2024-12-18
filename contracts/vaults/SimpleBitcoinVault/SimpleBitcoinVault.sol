@@ -147,7 +147,7 @@ import "./SimpleBitcoinVaultUTXOLogicHelper.sol";
  * additional deposits to the vault are permitted during the first 4 hours of liquidation and the
  * depositor will be credited with the appropriate hBTC if their deposit is otherwise valid and
  * doesn't cause the vault to exceed the soft collateralization threshold as usual (only applies
- * when vault is being liquidated due to operator misbheavior rather than collateralization).
+ * when vault is being liquidated due to operator misbehavior rather than collateralization).
  *
  * If additional deposits to the vault are confirmed during the liquidation process, the amount of
  * hBTC needing to be liquidated will be increased. This can result in selling collateral for higher
@@ -694,7 +694,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     /**
      * Returns all collateral deposited by the operator back to the operator.
      * Assumes caller has checked that the entire collateral can be withdrawn (all obligations
-     * related to BTC held on behalf of the protocol have been fulfilled and vault is closeCLOSEDd).
+     * related to BTC held on behalf of the protocol have been fulfilled and vault is CLOSED).
     */
     function returnAllCollateralToOperatorAdmin() private {
         // Withdraw entire deposited balance, which also returns collateral tokens the operator sent to the
@@ -712,7 +712,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * remaining ERC20 collateral to the vault operator. 
      * 
      * Note that the operator could (and generally will) have pending fees that they have not minted
-     * yet. If the tunnel system mnited those as hBTC then the vault could not be closed as it would
+     * yet. If the tunnel system minted those as hBTC then the vault could not be closed as it would
      * still be custodying BTC on behalf of the system (backing the hBTC that the operator minted),
      * so instead just zero out the pending fees, and the operator owns them on BTC directly.
     */
@@ -1073,7 +1073,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * confirmed deposit UTXO to use.
      *
      * @param depositTxId The transaction ID of the unswept confirmed deposit to count as the sweep UTXO
-     * @param abandonExistingUTXO Whether to forcibly abandon an existing sweep UTXO and chare the operator for the abandoned value.
+     * @param abandonExistingUTXO Whether to forcibly abandon an existing sweep UTXO and charge the operator for the abandoned value.
     */
     function assignConfirmedDepositAsSweep(bytes32 depositTxId, bool abandonExistingUTXO) external onlyOperatorAdmin {
         uint256 depositFee = vaultStateChild.getCollectableFees(depositTxId);
