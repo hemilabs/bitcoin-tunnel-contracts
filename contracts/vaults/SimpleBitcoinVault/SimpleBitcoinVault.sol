@@ -1176,6 +1176,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         Withdrawal memory withdrawal = vaultStateChild.getWithdrawal(uuid);
 
         require(vaultStateChild.isWithdrawalFulfilled(uuid), "this withdrawal was already successfully processed");
+        require(vaultStateChild.isWithdrawalAlreadyChallenged(uuid), "withdrawal has already been challenged");
 
         if (block.timestamp < withdrawal.timestampRequested + WITHDRAWAL_GRACE_PERIOD_SECONDS) {
             revert("the withdrawal grace period has not elapsed, and the operator can still process this withdrawal");
@@ -1185,6 +1186,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         // credited with hBTC and the vault needs to enter a full liquidation. Do not need to check
         // if a full liquidation is already allowed or in progress as it is a one-time latch.
         vaultStateChild.setFullCollateralLiquidationAllowed();
+        vaultStateChild.saveSuccessfulWithdrawalChallenge(uuid);
         return (true, withdrawal.amount, withdrawal.evmOriginator);
     }
 

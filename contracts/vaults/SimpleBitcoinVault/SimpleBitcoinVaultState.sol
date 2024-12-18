@@ -167,6 +167,10 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     // fulfilled to bytes32(0).
     mapping(uint32 => bytes32) public withdrawalsToStatus;
 
+    // All of the withdrawals by UUID mapped to a boolean of whether they have already been
+    // successfully challenged.
+    mapping(uint32 => bool) public withdrawalsChallenged;
+
     // All of the txids which have been successfully recognized as valid withdrawal fulfillments
     mapping(bytes32 => bool) public acknowledgedWithdrawalTxids;
 
@@ -770,6 +774,21 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     }
 
     /**
+     * Saves that a withdrawal has been successfully challenged to prevent repeat challenges.
+     * If this is called, then upstream will immediately allow a liquidation to occur if it
+     * it not already underway from previous operator misbehavior.
+     * However, we still remove the pending withdrawal and make the appropriate state updates
+     * to reflect that the withdrawal is no longer oustanding.
+     */
+    function saveSuccessfulWithdrawalChallenge(uint32 uuid) external onlyParentVault {
+        withdrawalsChallenged[uuid] = true;
+        pendingWithdrawalCount--;
+        removeWithdrawalFromQueue(uuid);
+        pendingWithdrawalAmountSat -= withdrawals[uuid].amount;
+
+    }
+
+    /**
      * Checks whether a Bitcoin transaction has been acknowledged as a withdrawal fulfillment
      * 
      * @param txid The TxID of the Bitcoin transaction to check
@@ -793,6 +812,19 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
     function isWithdrawalFulfilled(uint32 uuid) external view returns (bool isFulfilled) {
         // If a TxId is returned (!= bytes32(0)), then the withdrawal is fulfilled.
         return (withdrawalsToStatus[uuid] != bytes32(0));
+    }
+
+    /**
+     * Determines whether a withdrawal has already been marked as successfully challenged.
+     * Callable by anyone as this does not mutute any state. Will return false even for withdrawals
+     * that do not exist (uuid refers to a withdrawal that has not been created).
+     * 
+     * Note that this function does not check whether the transaction *can* be challenged,
+     * only whether a successful challenge has been successfully fulfilled due to this
+     * withdrawal not being processed by the Operator within the permitted time window.
+     */
+    function isWithdrawalAlreadyChallenged(uint32 uuid) external view returns (bool isChallenged) {
+        return withdrawalsChallenged[uuid];
     }
 
     /**
