@@ -66,6 +66,13 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         _;
     }
 
+    // Number of atomic units of Bitcoin (sats) per full BTC
+    uint256 public constant SATS_PER_BTC = 100_000_000;
+
+    // The divisor to use when doing multiplication against values which represent bps settings.
+    // For example if a fee is set at 100 bps, that is 1% so multiply by 100 then divide by 10000.
+    uint256 public constant BPS_DIVISOR = 10_000;
+
     // How long the operator has to wait between initiating and finalizing a partial collateral
     // withdrawal
     uint256 public constant PARTIAL_COLLATERAL_WITHDRAWAL_DELAY = 60 * 60 * 4; // 4 hours
@@ -613,7 +620,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      * @return depositFeeSats The calculated deposit fee in sats
     */
     function calculateDepositFee(uint256 depositAmount) external view returns (uint256 depositFeeSats) {
-        uint256 depositFee = depositAmount * depositFeeBps / 10000;
+        uint256 depositFee = depositAmount * depositFeeBps / BPS_DIVISOR;
         if (depositFee < minDepositFeeSats) {
             depositFee = minDepositFeeSats;
         }
@@ -627,7 +634,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      * @return withdrawalFeeSats The calculated withdrawal fee in sats
     */
     function calculateWithdrawalFee(uint256 withdrawalAmount) external view returns (uint256 withdrawalFeeSats) {
-        uint256 withdrawalFee = withdrawalAmount * withdrawalFeeBps / 10000;
+        uint256 withdrawalFee = withdrawalAmount * withdrawalFeeBps / BPS_DIVISOR;
         if (withdrawalFee < minWithdrawalFeeSats) {
             withdrawalFee = minWithdrawalFeeSats;
         }
@@ -1097,7 +1104,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         // soft collateralization threshold, divided by 100 since the collateralization threshold is
         // a percentage (ex: 130 = 130%), divided by 100_000_000 to cancel out the price being
         // denominated in Bitcoin rather than sats.
-        return ((totalDeposits * oracle.getAssetQuantityToBTC() * collateralizationRatio) / 100) / 100_000_000;
+        return ((totalDeposits * oracle.getAssetQuantityToBTC() * collateralizationRatio) / 100) / SATS_PER_BTC;
     }
 
 
@@ -1249,7 +1256,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
             // check whether a full liquidation is allowed based on collateral asset value versus
             // deposits held on behalf of the protocol.
             // Get the value of the current deposited BTC priced in the collateral asset
-            uint256 collateralCostOfDepositedBTC = collateralUnitsToBTC * totalDepositsHeld / 100_000_000; 
+            uint256 collateralCostOfDepositedBTC = collateralUnitsToBTC * totalDepositsHeld / SATS_PER_BTC; 
 
             uint256 collateralRatio = (depositedCollateralBalance * 100) / collateralCostOfDepositedBTC;
             if (collateralRatio >= hardCollateralizationThreshold) {
@@ -1506,7 +1513,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         parentVault.burnLiquidatedBTC(hBTCQuantity);
 
         uint256 currentPricePerBTC = getCurrentFullLiquidationCollateralPrice();
-        uint256 collateralAmountOfSale = hBTCQuantity * currentPricePerBTC / 100_000_000;
+        uint256 collateralAmountOfSale = hBTCQuantity * currentPricePerBTC / SATS_PER_BTC;
         
         bool collateralTransferSuccess = parentVault.transferCollateralForChild(recipient, collateralAmountOfSale);
         require(collateralTransferSuccess, "transferring collateral to the buyer failed");
@@ -1528,7 +1535,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     */
     function getCurrentFullLiquidationCollateralPrice() public view returns (uint256 collateralAtomicUnitsPerBTC) {
         uint256 secondsSinceLiquidationStart = block.timestamp - fullLiquidationStartTime;
-        uint256 increasePerPeriod = (fullLiquidationStartingPrice * FULL_LIQUIDATION_INCREASE_INCREMENT_BPS / 10000);
+        uint256 increasePerPeriod = (fullLiquidationStartingPrice * FULL_LIQUIDATION_INCREASE_INCREMENT_BPS / BPS_DIVISOR);
         uint256 incrementPeriods = secondsSinceLiquidationStart / FULL_LIQUIDATION_INCREASE_TIME;
 
         return fullLiquidationStartingPrice + (increasePerPeriod * incrementPeriods);
