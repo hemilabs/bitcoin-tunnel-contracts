@@ -787,6 +787,8 @@ contract GlobalConfig {
      * Pauses creation of new vaults, only callable by globalConfigAdmin and vaultCreationPauseAdmin
     */
     function pauseVaultCreation() external senderPermissionCheck(vaultCreationPauseAdmin) {
+        require(!vaultPausingPermDisabled, "vault creation pausing is permanently disabled");
+
         // if check so that we don't emit an event if vault creation already paused
         if (!vaultCreationPaused) {
             vaultCreationPaused = true;
@@ -905,6 +907,8 @@ contract GlobalConfig {
      * Pauses withdrawals, only callable by globalConfigAdmin and withdrawalPauseAdmin
     */
     function pauseWithdrawals() external senderPermissionCheck(withdrawalPauseAdmin) {
+        require(!withdrawalPausingPermDisabled, "withdrawal pausing is permanently disabled");
+
         // if check so that we don't emit an event if withdrwaals are already paused
         if (!withdrawalsPaused) {
             withdrawalsPaused = true;
@@ -928,6 +932,8 @@ contract GlobalConfig {
      * and withdrawalWhitelistEnableAdmin.
     */
     function enableWithdrawalWhitelist() external senderPermissionCheck(withdrawalWhitelistEnableAdmin) {
+        require(!withdrawalWhitelistingPermDisabled, "vwithdrawal whitelisting is permanently disabled");
+
         if (!withdrawalWhitelistEnabled) {
             withdrawalWhitelist = new AddressWhitelist(address(this));
             withdrawalWhitelistEnabled = true;
