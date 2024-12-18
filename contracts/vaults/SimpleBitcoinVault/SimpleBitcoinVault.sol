@@ -455,7 +455,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     *
     * @param newOperatorAdmin The new operatorAdmin to set.
     */
-    function updateOperatorAdmin(address newOperatorAdmin) onlyOperatorAdmin external {
+    function updateOperatorAdmin(address newOperatorAdmin) onlyOperatorAdmin notZeroAddress(newOperatorAdmin) external {
         operatorAdmin = newOperatorAdmin;
         vaultStateChild.updateOperatorAdmin(operatorAdmin);
     }
@@ -967,6 +967,9 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     function finalizeWithdrawal(bytes32 txid, uint32 withdrawalIndex) external returns (bool success) {
         require(!vaultStateChild.isWithdrawalFulfilled(withdrawalIndex), 
         "withdrawal must not already be mapped to a fulfilling txid");
+
+        require(!vaultStateChild.isTransactionAcknowledgedWithdrawalFulfillment(txid), 
+        "transaction was already finalized");
 
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 

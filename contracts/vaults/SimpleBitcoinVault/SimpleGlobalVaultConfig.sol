@@ -218,6 +218,19 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
         minCollateralAssetAmount =          initialMinCollateralAssetAmount;
         priceOracle =                       initialPriceOracle;
 
+        require(permSoftCollateralizationThreshold > 100, 
+        "soft collateralization threshold must be greater than 100");
+
+        require(permHardCollateralizationThreshold > 100, 
+        "hard collateralization threshold must be greater than 100");
+
+        // Allow creating vaults where the thresholds are the same.
+        // Normally, soft threshold will be larger (ex: 130 soft, 110 hard
+        // means deposits won't be accepted below 130% collateral, but liquidations
+        // won't occur until 110%).
+        require(permSoftCollateralizationThreshold >= permHardCollateralizationThreshold,
+         "soft collateralization threshold must be >= hard");
+
         // The collateralization thresholds are set at construction and cannot be changed
         softCollateralizationThreshold = permSoftCollateralizationThreshold;
         hardCollateralizationThreshold = permHardCollateralizationThreshold;
@@ -383,7 +396,7 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     function updateMaxWithdrawalFees(uint256 newMaxWithdrawalFeeSats, uint256 newMaxWithdrawalFeeBasisPoints) external senderPermissionCheck(maxWithdrawalFeeAdmin) feeWithinBounds(newMaxWithdrawalFeeBasisPoints) {
         require(newMaxWithdrawalFeeSats >= minWithdrawalFeeSats, "new max withdrawal fee sats must be >= current min withdrawal fee sats");
         require(newMaxWithdrawalFeeBasisPoints >= minWithdrawalFeeBasisPoints, "new max withdrawal fee bps must be >= current min withdrawal fee bps");
-        
+
         maxWithdrawalFeeSats = newMaxWithdrawalFeeSats;
         maxWithdrawalFeeBasisPoints = newMaxWithdrawalFeeBasisPoints;
         emit MaxWithdrawalFeesUpdated(newMaxWithdrawalFeeSats, newMaxWithdrawalFeeBasisPoints);

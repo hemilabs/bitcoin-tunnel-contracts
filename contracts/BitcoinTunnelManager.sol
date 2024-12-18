@@ -373,6 +373,8 @@ contract BitcoinTunnelManager is CommonStructs {
      * @return amountMinted The amount actually minted, which may be smaller than the requested amount if supported by the vault
     */
     function mintOperatorFees(uint32 vaultIndex, uint256 amountToMint) external returns (uint256 amountMinted) {
+        require(vaultIndex < vaultCounter, "vault does not exist");
+        
         IBitcoinVault vault = vaults[vaultIndex];
         (bool success, uint256 amountMintable) = vault.mintOperatorFees(msg.sender, amountToMint);
         require(success, "vault does not permit minting the specified amount of assets");
