@@ -1140,6 +1140,10 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         // at withdrawal finalization.
         require(desiredWithdrawalAmount <= freeCollateral, "desired withdrawal amount must be less than free collateral");
 
+        uint256 collateralBalanceAfterWithdrawal = depositedCollateralBalance - desiredWithdrawalAmount;
+        require(collateralBalanceAfterWithdrawal >= parentVault.minCollateralAmount(), 
+        "partial collateral withdrawal would cause vault collateral to drop below the minimum collateral amount");
+
         pendingCollateralWithdrawal = desiredWithdrawalAmount;
         pendingCollateralWithdrawalRequestTime = block.timestamp;
     }
@@ -1177,6 +1181,13 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         uint256 withdrawalAmount = getFreeCollateral();
         if (pendingCollateralWithdrawal < withdrawalAmount) {
             withdrawalAmount = pendingCollateralWithdrawal;
+        }
+
+        // Ensure that the withdrawal amount does not cause the collateral to drop below the
+        // minimum collateral amount specified by the vault.
+        uint256 collateralAboveMinimum = depositedCollateralBalance - parentVault.minCollateralAmount();
+        if (withdrawalAmount > collateralAboveMinimum) {
+            withdrawalAmount = collateralAboveMinimum;
         }
 
         // Transfter the collateral to the operator admin (same as msg.sender)

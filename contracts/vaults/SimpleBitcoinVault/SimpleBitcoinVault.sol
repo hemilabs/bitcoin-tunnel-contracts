@@ -445,8 +445,6 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         btcTokenContract = _btcTokenContract;
         vaultStatus = Status.CREATED;
 
-        minCollateralAmount = vaultConfig.getMinCollateralAssetAmount();
-
         vaultStateChild = vaultStateFactory.createSimpleBitcoinVaultState(this, _operatorAdmin, _vaultConfig, _btcTokenContract);
 
         utxoLogicHelper = _utxoLogicHelper;
@@ -505,6 +503,12 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
             // Created status means no assets are locked up to secure the vault, so update to
             // INITIALIZING if in CREATED state
             vaultStatus = Status.INITIALIZING;
+
+            // Set the min collateral amount upon initial deposit (not done at construction)
+            // as that would allow operators to pre-stage many vaults with lower collateral
+            // requirements before an upgrade that they don't use until later allowing them
+            // to effectively bypass increased minimum collateral requirements for new vaults
+            minCollateralAmount = vaultConfig.getMinCollateralAssetAmount();
         }
 
         emit CollateralDeposited(amount, totalCollateral);
