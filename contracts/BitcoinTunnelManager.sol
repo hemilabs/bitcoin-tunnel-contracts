@@ -285,7 +285,7 @@ contract BitcoinTunnelManager is CommonStructs {
         require(!globalConfig.withdrawalsPaused(), "withdrawals are paused");
         require(vaultIndex < vaultCounter, "vault does not exist");
 
-        if (globalConfig.vaultCreationWhitelistEnabled()) {
+        if (globalConfig.withdrawalWhitelistEnabled()) {
             require(globalConfig.isAddressPermittedToWithdraw(msg.sender), 
             "withdrawal whitelisting enabled and caller is not whitelisted");
         }
