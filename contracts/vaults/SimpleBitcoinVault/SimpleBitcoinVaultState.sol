@@ -984,7 +984,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      * @return freeCollateralAtomicUnits The amount of free collateral in atomic units
     */
     function getFreeCollateral() public view returns (uint256 freeCollateralAtomicUnits) {
-        uint256 utilizedCollateral = getUtilizedCollateral();
+        uint256 utilizedCollateral = getUtilizedCollateralSoft();
 
         // Calculate the remaining collateral if the operator's full pendingCollateralWithdrawal is
         // accepted
@@ -1002,6 +1002,29 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         return conservativeTotalCollateral - utilizedCollateral;
     }
 
+    /**
+     * Determines whether an additional deposit of depositAmount will result in exceeding the
+     * soft collateralization threshold for deposit acceptance. Does not take into account
+     * pending collateral withdrawals as accepting a deposit will change the utilized collateral
+     * which will change the actual permitted collateral withdrawal amount.
+     * 
+     * @param depositAmount Additional deposit amount in satoshis
+     * 
+     * @return exceedsCollateral Whether the additional deposit would result in exceeding the 
+     *                           soft collateralization threshold.
+     */
+    function doesDepositExceedSoftCollateralThreshold(uint256 depositAmount) public view returns (bool exceedsCollateral) {
+        uint256 simulatedDepositsHeld = totalDepositsHeld + depositAmount;
+
+        // Calculate how much collateral would be required to accept the deposit
+        // at the soft collateralization threshold
+        uint256 simulatedUtilizedCollateral = calculateCollateralUtilization(simulatedDepositsHeld, softCollateralizationThreshold);
+
+        // If the amount of utilized collateral assuming the deposit was accepted
+        // exceeds the deposited collateral balance, then the deposit cannot
+        // be accepted.
+        return (simulatedUtilizedCollateral > depositedCollateralBalance);
+    }
 
     /**
      * Calculate how much of the current collateral is utilized to maintain the current active
@@ -1017,20 +1040,15 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
      *   - The vault must keep 5 * 10_000_000 * 130 / 100 = 65_000_000 units of collateral
      *     (note that this is 6.5 BTC worth of collateral, and 6.5/5 = 1.3 which corresponds
      *     to the softCollateralizationThreshold of 130 (%)).
+     * 
+     * @return utilizedCollateralAtomicUnits The amount of atomic units of collateral that are utilized
     */
-    function getUtilizedCollateral() public view returns (uint256 utilizedCollateralAtomicUnits) {
-        IAssetPriceOracle oracle = vaultConfig.getPriceOracle();
-        // deposits held (in sats) times quantity of collateral in atomic units for 1 BTC times the
-        // soft collateralization threshold, divided by 100 since the collateralization threshold is
-        // a percentage (ex: 130 = 130%), divided by 100_000_000 to cancel out the price being
-        // denominated in Bitcoin.
-        uint256 utilizedCollateral = ((totalDepositsHeld * oracle.getAssetQuantityToBTC() * softCollateralizationThreshold) / 100) / 100_000_000;
+    function getUtilizedCollateralSoft() public view returns (uint256 utilizedCollateralAtomicUnits) {
+        uint256 utilizedCollateral = calculateCollateralUtilization(totalDepositsHeld, softCollateralizationThreshold);
 
-        // If this happens, it means the vault is undercollateralized, and a liquidation might not
-        // ensure vault solvency.
-        //
-        // The incentives for liquidation should prevent this from happening except in the most
-        // extreme cases of rapid negative price movement of the collateral value relative to BTC.
+        // If the utilized collateral (calculated at the soft collateralization threshold) is 
+        // more than the deposited collateral balance, then it means the vault is undercollateralized
+        // considering the soft collateralization threshold.
         //
         // If this does occur, no action is taken in this function, but since only the total
         // deposited collateral balance could be "utilized", return that value instead.
@@ -1039,6 +1057,22 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs {
         }
 
         return utilizedCollateral;
+    }
+
+    /**
+     * An internal utility method to calculate collateral utilization based on a specific
+     * totalDeposits value (which can either be the current totalDepositsHeld value or a simulated
+     * value) along with a collateralization ratio.
+     * 
+     * @param totalDeposits The amount of BTC deposits in atomic units (sats)
+     */
+    function calculateCollateralUtilization(uint256 totalDeposits, uint256 collateralizationRatio) internal view returns (uint256 utilizedCollateralAtomicUnits) {
+        IAssetPriceOracle oracle = vaultConfig.getPriceOracle();
+        // deposits held (in sats) times quantity of collateral in atomic units for 1 BTC times the
+        // soft collateralization threshold, divided by 100 since the collateralization threshold is
+        // a percentage (ex: 130 = 130%), divided by 100_000_000 to cancel out the price being
+        // denominated in Bitcoin rather than sats.
+        return ((totalDeposits * oracle.getAssetQuantityToBTC() * collateralizationRatio) / 100) / 100_000_000;
     }
 
 
