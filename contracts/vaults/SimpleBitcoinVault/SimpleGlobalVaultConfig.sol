@@ -30,6 +30,8 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 * Some values are only set at initial construction and cannot be changed.
 */
 contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
+    event ConfigAdminUpdateInitiated(address indexed oldConfigAdmin, address indexed newConfigAdmin);
+    event ConfigAdminUpdateRejected(address indexed newConfigAdmin);
     event ConfigAdminUpdateCompleted(address indexed newConfigAdmin);
     event PriceOracleImplementationUpdated(address indexed newPriceOracle);
     event BitcoinKitUpgradesPermDisabled(address indexed currentBitcoinKit);
@@ -73,6 +75,8 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
         require (fee <= 10 * 100);
         _;
     }
+
+    uint256 public constant CONFIG_ADMIN_UPGRADE_DELAY = 60 * 60 * 12; // 12 hours
 
     // The minimum deposit fee (in sats) that a vault can charge.
     uint256 public minDepositFeeSats;
@@ -146,6 +150,16 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     // The configAdmin can update permissions for who can update all other config values,
     // and can also update any config value themselves.
     address public configAdmin;
+
+    // When the configAdmin is updated, the new address is set as pendingConfigAdmin
+    // until the pendingConfigAdmin executes an acceptance of the role to prevent
+    // potential issues updating the config admin irreversibly to the incorrect address.
+    address public pendingConfigAdmin;
+
+    // The start time at which an update to the pending config admin was initiated,
+    // used to require an update to the pending config admin to wait for
+    // CONFIG_ADMIN_UPGRADE_DELAY seconds before the upgrade goes into effect.
+    uint256 public pendingConfigAdminUpdateStartTime;
 
     // The address able to update the IAssetPriceOracle implementation used
     address public oracleImplementationAdmin;
@@ -266,12 +280,51 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     }
 
     /**
-    * Updates the configAdmin to a new admin address, only callable by the current configAdmin.
+    * Initiates an update to the configAdmin, only callable by the current configAdmin.
     *
     * @param newConfigAdmin The new configAdmin to set
     */
-    function updateConfigAdmin(address newConfigAdmin) external onlyConfigAdmin notZeroAddress(newConfigAdmin) {
+    function initiateConfigAdminUpdate(address newConfigAdmin) external onlyConfigAdmin notZeroAddress(newConfigAdmin) {
+        pendingConfigAdmin = newConfigAdmin;
+        pendingConfigAdminUpdateStartTime = block.timestamp;
+
+        address oldConfigAdmin = configAdmin;
         configAdmin = newConfigAdmin;
+        emit ConfigAdminUpdateInitiated(oldConfigAdmin, configAdmin);
+    }
+
+    /**
+     * Reject (delete) a pending configAdmin update. Can be called by configAdmin or
+     * the new pending configAdmin.
+    */
+    function rejectConfigAdminUpdate() external {
+        require(msg.sender == configAdmin || msg.sender == pendingConfigAdmin,
+         "only the current or proposed new config admin can reject a config admin update");
+
+        address temp = address(pendingConfigAdmin);
+        pendingConfigAdmin = address(0);
+        pendingConfigAdminUpdateStartTime = 0;
+        emit ConfigAdminUpdateRejected(temp);
+    }
+
+    /**
+     * Processes the configAdmin update after the activation time has been reached. Can only
+     * be called by the soon-to-be configAdmin as a form of accepting the config admin
+     * role.
+     */
+    function finalizeConfigAdminUpdate() external {
+        // Require the pending new config admin to call this function to "accept" ownership
+        require(msg.sender == pendingConfigAdmin);
+        require(pendingConfigAdminUpdateStartTime != 0, "a config admin upgrade is not in progress");
+
+        uint256 elapsed = block.timestamp - pendingConfigAdminUpdateStartTime;
+
+        require(elapsed >= CONFIG_ADMIN_UPGRADE_DELAY, 
+        "the required config admin upgrade delay has not elapsed");
+
+        configAdmin = pendingConfigAdmin;
+        pendingConfigAdmin = address(0);
+        pendingConfigAdminUpdateStartTime = 0;
         emit ConfigAdminUpdateCompleted(configAdmin);
     }
 
