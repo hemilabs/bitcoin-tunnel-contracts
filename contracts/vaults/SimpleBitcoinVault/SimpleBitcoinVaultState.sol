@@ -1299,6 +1299,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
 
         // Deduct withdrawal amount from deposited collateral balance
         depositedCollateralBalance = depositedCollateralBalance - withdrawalAmount;
+        pendingCollateralWithdrawal = 0;
+        pendingCollateralWithdrawalRequestTime = 0;
     }
 
 
