@@ -294,9 +294,7 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
         pendingConfigAdmin = newConfigAdmin;
         pendingConfigAdminUpdateStartTime = block.timestamp;
 
-        address oldConfigAdmin = configAdmin;
-        configAdmin = newConfigAdmin;
-        emit ConfigAdminUpdateInitiated(oldConfigAdmin, configAdmin);
+        emit ConfigAdminUpdateInitiated(configAdmin, pendingConfigAdmin);
     }
 
    /**
