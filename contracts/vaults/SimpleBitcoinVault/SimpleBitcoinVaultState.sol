@@ -958,6 +958,9 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
                     fullLiquidationOperatorReserves = 0;
                     totalDepositsHeld = totalDepositsHeld + excessAfterReserves;
                 }
+            } else {
+                // Full liquidation started but no reserves, so behave normally
+                totalDepositsHeld = totalDepositsHeld + increase;
             }
         } else {
             // Vault is not currently in a full liquidation, so no need to check reserves.
