@@ -1079,12 +1079,14 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      *
      * @return freeCollateralAtomicUnits The amount of free collateral in atomic units
     */
-    function getFreeCollateral() public view returns (uint256 freeCollateralAtomicUnits) {
+    function getFreeCollateral(bool ignorePendingCollateralWithdrawal) public view returns (uint256 freeCollateralAtomicUnits) {
         uint256 utilizedCollateral = getUtilizedCollateralSoft();
 
-        // Calculate the remaining collateral if the operator's full pendingCollateralWithdrawal is
-        // accepted
-        uint256 conservativeTotalCollateral = depositedCollateralBalance - pendingCollateralWithdrawal;
+        uint256 conservativeTotalCollateral = depositedCollateralBalance;
+        if (!ignorePendingCollateralWithdrawal) {
+            // Not ignoring pending collateral withdrawal, so add it in
+            conservativeTotalCollateral += pendingCollateralWithdrawal;
+        }
 
         if (utilizedCollateral > conservativeTotalCollateral) {
             // This can happen on an edge case where the pendingCollateralWithdrawal would decrease
@@ -1228,7 +1230,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
 
         // Calculate free collateral as the current deposited collateral minus the amount of
         // collateral currently required to fulfill the soft collateralization threshold
-        uint256 freeCollateral = getFreeCollateral();
+        // Not ignoring pending collateral withdrawal but none should exist
+        uint256 freeCollateral = getFreeCollateral(false);
 
         // Ensure that the desired withdrawal amount does not exceed the amount
         // of free collateral currently available in the vault.
@@ -1275,8 +1278,8 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         "the waiting period for a partial collateral withdrawal has not elapsed");
 
         // Only allow operator to withdraw free collateral OR the requested withdrawal amount,
-        // whichever is lower
-        uint256 withdrawalAmount = getFreeCollateral();
+        // whichever is lower. Ignoring pending collateral withdrawal to avoid double-counting here.
+        uint256 withdrawalAmount = getFreeCollateral(true);
         if (pendingCollateralWithdrawal < withdrawalAmount) {
             withdrawalAmount = pendingCollateralWithdrawal;
         }
