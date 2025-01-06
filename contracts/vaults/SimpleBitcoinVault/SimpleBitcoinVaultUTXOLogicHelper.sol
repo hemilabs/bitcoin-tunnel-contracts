@@ -550,11 +550,12 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
             if (txInputCount == 1) {
                 // Must be a withdrawal or invalid
 
-                if (txOutputCount != 2) {
+                if (txOutputCount != 3) {
                     // Can only traverse backwards through outputs which output a sweep UTXO,
-                    // meaning they would have exactly two outputs. If not exactly two outputs,
-                    // then this is not a valid withdrawal transaction and therefore the potential
-                    // sweep we are analyzing must be invalid.
+                    // meaning they would have exactly three outputs. If not exactly three outputs,
+                    // then this could be a valid withdrawal transaction but it would be one without
+                    // a change output, meaning there is no connected sweep walkback chain and
+                    // therefore the potential sweep we are analyzing must be invalid.
                     return true;
                 }
 
@@ -685,8 +686,8 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
             // The only way this could be valid is as a withdrawal, so check if it aligns with any
             // pending withdrawal
             
-            // A withdrawal cannot have more than 2 outputs
-            if (txOutputCount > 2) {
+            // A withdrawal cannot have less than two or more than tree outputs
+            if (txOutputCount < 2 || txOutputCount > 3) {
                 return true;
             }
 
