@@ -268,6 +268,7 @@ contract SimpleGlobalVaultConfig is IGlobalVaultConfig {
     }
 
     function markBtcCustodianshipScriptHashUsed(bytes32 scriptHash) external {
+        require(deployedVaults[msg.sender] == true, "only deployed vaults can mark a BTC custodian script hash as used");
         require(scriptHash != bytes32(0), "script hash must not be zero");
         require(!usedBtcCustodianshipScriptHashes[scriptHash], "script hash is already in use");
         usedBtcCustodianshipScriptHashes[scriptHash] = true;

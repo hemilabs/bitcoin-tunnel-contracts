@@ -406,7 +406,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     // the vault, and will not change to reflect changes in the SimpleGlobalVaultConfig. This is to
     // prevent a future increase in the collateral amount required to effect vaults which were
     // created before the increase went into place.
-    uint256 minCollateralAmount;
+    uint256 public minCollateralAmount;
 
     // Bitcoin custodian address
     string public bitcoinCustodyAddress;
@@ -559,7 +559,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     /**
      * Called by the operatorAdmin to set the BTC address that this vault will use for BTC
      * custodianship for its lifetime. Can only be set once, and is required before setting the
-     * vault to live. 
+     * vault to live.
      *
      * @param btcAddress The Bitcoin address which the vault will use for custodianship
     */
@@ -650,8 +650,17 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
      * confirmed.
     */
     function windDownVault() external onlyOperatorAdmin {
-        // When called externally, use current timestamp plus the wind down grace period
-        windDownVaultImpl(block.timestamp + WIND_DOWN_DEPOSIT_GRACE_PERIOD);
+        if (vaultConfig.isVaultSystemDeprecated()) {
+            // If the vault system is deprecated, set the wind down time to the correct
+            // time based on the deprecation time of the vault system, rather than the
+            // current time. This prevents an operator from being able to keep their vault
+            // open slightly longer than the expected deprecation time would suggest.
+            windDownVaultImpl(vaultConfig.vaultSystemDeprecationTime() + WIND_DOWN_DEPOSIT_GRACE_PERIOD);
+        } else {
+            // When called voluntarily, use current timestamp plus the wind down grace period
+            windDownVaultImpl(block.timestamp + WIND_DOWN_DEPOSIT_GRACE_PERIOD);
+        }
+
     }
 
     /**
@@ -689,7 +698,14 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
     */
     function finalizeWindDown() external {
         require(isWindingDown(), "vault must be winding down to finalize");
-        require(block.timestamp >= windDownTime, "wind down time has not passed");
+
+        // Not already winding down (windDownTime == 0), but vault system is deprecated
+        if (windDownTime == 0 && vaultConfig.isVaultSystemDeprecated()) {
+            // Vault system is deprecated, so set windDownTime based on the deprecation time
+            windDownTime = vaultConfig.vaultSystemDeprecationTime() + WIND_DOWN_DEPOSIT_GRACE_PERIOD;
+        }
+
+        require(block.timestamp >= windDownTime, "wind down time has not yet occurred");
         require(vaultStatus == Status.LIVE, "can only wind down a live vault");
         vaultStatus = Status.CLOSING_INIT;
         emit VaultClosingInit();
@@ -990,12 +1006,11 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
             uint256 availableAfter = depositsHeld - (pendingWithdrawalAmount + amountSats);
             if (availableAfter < MINIMUM_WITHDRAWAL_SATS) {
                 require(availableAfter == 0,
-                "withdrawal would leave vault balance below the minimum withdrawal threshold");
+                "withdrawal would leave remaining vault balance below the minimum withdrawal threshold");
             }
 
-            // If the vault is in closing mode and the pending withdrawal amount is equal to the remaining
-            // BTC custodied after all other pending withdrawals are processed, transition to CLOSING_VERIF
-            // which will stay in force until all pending withdrawals are processed.
+            // If the vault is in closing mode and the pending withdrawal amount is equal to the BTC
+            // custodied, change the vault to CLOSING_VERIF
             if (pendingWithdrawalAmountAfterWithdrawal == depositsHeld) {
                 vaultStatus = Status.CLOSING_VERIF;
                 emit VaultClosingVerif();
@@ -1040,7 +1055,7 @@ contract SimpleBitcoinVault is IBitcoinVault, VaultUtils, SimpleBitcoinVaultStru
         IBitcoinKit bitcoinKit = vaultConfig.getBitcoinKitContract();
 
         require(bitcoinKit.getTxConfirmations(txid) >= MIN_BITCOIN_CONFIRMATIONS,
-         "btc withdrawal not confirmed");
+        "btc withdrawal not confirmed");
 
         (uint256 feesOverpaid, uint256 feesCollected, uint256 withdrawalAmount, 
         bool createdOutput, uint256 newSweepUTXOValue) =

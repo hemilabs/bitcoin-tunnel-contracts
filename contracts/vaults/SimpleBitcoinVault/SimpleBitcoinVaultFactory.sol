@@ -186,6 +186,8 @@ contract SimpleBitcoinVaultFactory is IVaultFactory {
         vaults[vaultCounter] = vault;
         vaultCounter++;
 
+        vaultConfig.saveNewVaultDeployment(address(vault));
+
         // Convert to the implemented interface for use upstream
         return IBitcoinVault(address(vault));
     }

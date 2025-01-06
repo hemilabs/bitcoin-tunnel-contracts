@@ -346,17 +346,17 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
 
         if (newSoftCollateralizationThreshold < softCollateralizationThreshold) {
             // For event
-             uint256 previous = softCollateralizationThreshold;
+            uint256 previous = softCollateralizationThreshold;
 
             // The threshold is being lowered which increases the deposits this vault can accept,
             // so can be applied immediately as it does not affect in-progress user deposits.
-             softCollateralizationThreshold = newSoftCollateralizationThreshold;
+            softCollateralizationThreshold = newSoftCollateralizationThreshold;
 
-             // Clear any other pending update
-             pendingSoftCollateralizationThreshold = 0;
-             pendingSoftCollateralizationThresholdUpdateTime = 0;
+            // Clear any other pending update
+            pendingSoftCollateralizationThreshold = 0;
+            pendingSoftCollateralizationThresholdUpdateTime = 0;
 
-             emit SoftCollateralizationThresholdDecreased(previous, softCollateralizationThreshold);
+            emit SoftCollateralizationThresholdDecreased(previous, softCollateralizationThreshold);
         } else {
             // The threshold is being raised, which lowers the deposits this vault can accept,
             // so has to be applied after an activation period.
@@ -878,7 +878,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      * behavior.
      * 
      * Also note that this will return false if the corresponding withdrawal was *not* fulfilled
-     * by a Bitcoin transaction but *was* already successfully challanged, so this function should
+     * by a Bitcoin transaction but *was* already successfully challenged, so this function should
      * not be used alone for determining whether a withdrawal that was unfulfilled was already
      * challenged and had hBTC re-minted.
      * 
@@ -1019,11 +1019,11 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     }
 
     /**
-     * Determines whether the operator can initiate a new collateral withdrawal.
+     * Determines whether the operator can initiate a new partial collateral withdrawal.
      * 
      * @return collateralWithdrawalAllowed Whether the operator can initiate a new collateral withdrawal
     */
-    function canOperatorInitiateCollateralWithdraw() public view returns (bool collateralWithdrawalAllowed) {
+    function canOperatorInitiatePartialCollateralWithdrawal() public view returns (bool collateralWithdrawalAllowed) {
         if (isPendingPartialCollateralWithdrawal()) {
             return false; // Cannot withdraw collateral if a partial collateral withdrawal is already in progress
         }
@@ -1035,11 +1035,10 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         // Should never be a state where fullLiquidationAllowed = false but fullLiquidationStarted = true, but check both
         // as extra sanity check
         if (fullLiquidationAllowed || fullLiquidationStarted) {
-            if (fullLiquidationDone) {
-                 return true;
-            } else {
-                return false; // Cannot withdraw collateral if a full liquidation is allowed/started but not completed
-            }
+            // After a full liquidation is allowed, there is no need to ever initiate a partial collateral withdrawal.
+            // When the full liquidation is complete, the operator will close the vault through the SimpleBitcoinVault
+            // by calling closeVaultAfterFullLiquidation() which will return all collateral.
+            return false;
         }
 
         return true;
@@ -1222,11 +1221,11 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         // Cannot withdraw zero atomic units
         require(desiredWithdrawalAmount > 0, "withdrawal amount must not be zero");
 
-        require(canOperatorInitiateCollateralWithdraw(), "operator cannot initiate collateral withdraw");
+        require(canOperatorInitiatePartialCollateralWithdrawal(), "operator cannot initiate collateral withdraw");
 
         // Calculate free collateral as the current deposited collateral minus the amount of
         // collateral currently required to fulfill the soft collateralization threshold
-        uint256 freeCollateral = depositedCollateralBalance - getUtilizedCollateralSoft();
+        uint256 freeCollateral = getFreeCollateral();
 
         // Ensure that the desired withdrawal amount does not exceed the amount
         // of free collateral currently available in the vault.
@@ -1234,6 +1233,11 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         // eventually be modified based on the actual free collateral available
         // at withdrawal finalization.
         require(desiredWithdrawalAmount <= freeCollateral, "desired withdrawal amount must be less than free collateral");
+
+        uint256 collateralBalanceAfterWithdrawal = depositedCollateralBalance - desiredWithdrawalAmount;
+        require(collateralBalanceAfterWithdrawal >= parentVault.minCollateralAmount(), 
+        "partial collateral withdrawal would cause vault collateral to drop below the minimum collateral amount");
+
 
         pendingCollateralWithdrawal = desiredWithdrawalAmount;
         pendingCollateralWithdrawalRequestTime = block.timestamp;
@@ -1247,14 +1251,14 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
      *   - The *current* available collateral under the soft collateralization threshold, OR
      *   - The originally requested withdrawal amount
     */
-    function finalizePartialCollateralWithdrawal() onlyOperatorAdmin nonReentrant external {
+    function finalizePartialCollateralWithdrawal() nonReentrant onlyOperatorAdmin external {
         // Cannot perform a partial collateral withdrawal unless one has already been initiated
         require(isPendingPartialCollateralWithdrawal(), "there is no pending collateral withdrawal to finalize");
 
         // Cannot perform a partial collateral withdrawal if a partial liquidation is in progress or
         // could be triggered
-        require(!partialLiquidationInProgress, "there is a partial liquidation in progress");
-        require(pendingPartialLiquidationSats == 0, "there is a partial liquidation authorized");
+        require(!partialLiquidationInProgress && (pendingPartialLiquidationSats == 0), 
+        "there is a partial liquidation authorized or in progress");
 
         // Cannot perform a partial collateral withdrawal if a full liquidation is active.
         // fullLiquidationAllowed should never be false if fullLiquidationStarted is true, but check
@@ -1272,6 +1276,13 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         uint256 withdrawalAmount = getFreeCollateral();
         if (pendingCollateralWithdrawal < withdrawalAmount) {
             withdrawalAmount = pendingCollateralWithdrawal;
+        }
+
+        // Ensure that the withdrawal amount does not cause the collateral to drop below the
+        // minimum collateral amount specified by the vault.
+        uint256 collateralAboveMinimum = depositedCollateralBalance - parentVault.minCollateralAmount();
+        if (withdrawalAmount > collateralAboveMinimum) {
+            withdrawalAmount = collateralAboveMinimum;
         }
 
         // Transfter the collateral to the operator admin (same as msg.sender)
@@ -1309,7 +1320,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
             // check whether a full liquidation is allowed based on collateral asset value versus
             // deposits held on behalf of the protocol.
             // Get the value of the current deposited BTC priced in the collateral asset
-            uint256 collateralCostOfDepositedBTC = collateralUnitsToBTC * totalDepositsHeld / 100_000_000; 
+            uint256 collateralCostOfDepositedBTC = collateralUnitsToBTC * totalDepositsHeld / SATS_PER_BTC; 
 
             uint256 collateralRatio = (depositedCollateralBalance * 100) / collateralCostOfDepositedBTC;
             if (collateralRatio >= hardCollateralizationThreshold) {
@@ -1317,9 +1328,6 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
             }
             fullLiquidationAllowed = true;
         }
-
-        // Either full liquidation was already allowed, or was just set above by collateral ratio check
-        require(fullLiquidationAllowed, "full liquidation is not allowed");
 
         // Check if a partial liquidation is in progress, and if so stop it and return held bid funds
         if (partialLiquidationInProgress) {
@@ -1508,6 +1516,11 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
                 // total deposits held.
                 pl.finished = true;
                 partialLiquidationInProgress = false;
+
+                // Since the partial liquidation was not successful, add the unfulfilled partial
+                // collateral liquidation amount back
+                pendingPartialLiquidationSats += pl.amountSatsToRecover;
+                return;
             }
         }
 
@@ -1565,7 +1578,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         parentVault.burnLiquidatedBTC(hBTCQuantity);
 
         uint256 currentPricePerBTC = getCurrentFullLiquidationCollateralPrice();
-        uint256 collateralAmountOfSale = hBTCQuantity * currentPricePerBTC / 100_000_000;
+        uint256 collateralAmountOfSale = hBTCQuantity * currentPricePerBTC / SATS_PER_BTC;
         
         bool collateralTransferSuccess = parentVault.transferCollateralForChild(recipient, collateralAmountOfSale);
         require(collateralTransferSuccess, "transferring collateral to the buyer failed");
@@ -1573,7 +1586,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         depositedCollateralBalance = depositedCollateralBalance - collateralAmountOfSale;
         totalDepositsHeld = totalDepositsHeld - hBTCQuantity;
 
-        // Not setting the vault to closed here, because we could be still within the full liquidation
+        // Not setting the vault to closed yet, because we could be still within the full liquidation
         // grace period meaning more deposits could be accepted which would require further liquidation.
         // Operator must close the vault themselves which will check that condition.
         emit FullLiquidationCollateralPurchased(msg.sender, hBTCQuantity, collateralAmountOfSale, currentPricePerBTC);
@@ -1587,7 +1600,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     */
     function getCurrentFullLiquidationCollateralPrice() public view returns (uint256 collateralAtomicUnitsPerBTC) {
         uint256 secondsSinceLiquidationStart = block.timestamp - fullLiquidationStartTime;
-        uint256 increasePerPeriod = ((fullLiquidationStartingPrice * FULL_LIQUIDATION_INCREASE_INCREMENT_BPS) / BPS_DIVISOR);
+        uint256 increasePerPeriod = (fullLiquidationStartingPrice * FULL_LIQUIDATION_INCREASE_INCREMENT_BPS / BPS_DIVISOR);
         uint256 incrementPeriods = secondsSinceLiquidationStart / FULL_LIQUIDATION_INCREASE_TIME;
 
         return fullLiquidationStartingPrice + (increasePerPeriod * incrementPeriods);
@@ -1642,7 +1655,6 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     function processCollectedFeesToDecrementPartialPendingLiquidation(uint256 fees) public onlyParentVault returns (uint256 remainingFees) {
         return permissionedDecrementPartialPendingLiquidationImpl(fees);
     }
-
 
     /**
      * Decreases the partial pending liquidation sats by up to the provided amount in sats, returning

@@ -191,7 +191,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
             // New sweep UTXO is the 2nd output (index 1) of this Bitcoin transaction
             return (feesOverpaid, feesCollected, withdrawal.amount, true, btcTx.outputs[1].outValue);
         } else {
-            // There is only one output, which is only allowed if the output completely clears out
+            // There are only two outputs, which is only allowed if the output completely clears out
             // all BTC held by the vault based on confirmed deposits. This is a rare edge case
             // because it also means that the operator decided to pay exactly the remaining UTXO
             // value as the BTC fees so is unlikely to happen in practice, but an operator may elect
@@ -200,6 +200,8 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
             //
             // If this occurs, then set the current sweep UTXO to nothing, and the next deposit will
             // set a new sweep as the deposit itself similar to the first deposit to a vault.
+            //
+            // First output is the withdrawal, and 2nd output is the OP_RETURN identifying the withdrawal.
 
             require(extractWithdrawalIndexFromOpReturn(btcTx.outputs[1].script) == withdrawalIndex,
             "extracted withdrawal index from op_return does not match withdrawal index");
