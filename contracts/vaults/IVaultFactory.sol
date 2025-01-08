@@ -63,8 +63,10 @@ interface IVaultFactory {
      * vault deployments.
      *
      * Security note: should only be callable by the GlobalConfig
+     * 
+     * @param permittedVaultCreator The address which will be permitted to create new vaults
     */
-    function activateFactory() external;
+    function activateFactory(address permittedVaultCreator) external;
 
     /**
      * Returns whether the factory is currently active.

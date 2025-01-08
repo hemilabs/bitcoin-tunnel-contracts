@@ -16,6 +16,8 @@ contract MockVaultFactory is IVaultFactory {
 
     bool factoryDeprecated = false;
 
+    address public permittedVaultCreatorAddr;
+
 
     constructor(address factoryStatusAdmin) {
         factoryStatusAdminAddr = factoryStatusAdmin;
@@ -84,8 +86,9 @@ contract MockVaultFactory is IVaultFactory {
     *
     * Security note: should only be callable by the GlobalConfig
     */
-    function activateFactory() external {
+    function activateFactory(address permittedVaultCreator) external {
         factoryActivated = true;
+        permittedVaultCreatorAddr = permittedVaultCreator;
     }
 
     /**

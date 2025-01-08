@@ -251,7 +251,7 @@ const {
     
             const { mockVaultFactoryContract} = await deployMockVaultFactory(globalConfigContract.getAddress());
 
-            await mockVaultFactoryContract.activateFactory();
+            await mockVaultFactoryContract.activateFactory("0x0000000000000000000000000000000000000000");
 
             await mockVaultFactoryContract.createVault("0x0000000000000000000000000000000000000000", 
                 "0x0000000000000000000000000000000000000000",
@@ -270,7 +270,7 @@ const {
     
             const { mockVaultFactoryContract} = await deployMockVaultFactory(globalConfigContract.getAddress());
 
-            await mockVaultFactoryContract.activateFactory();
+            await mockVaultFactoryContract.activateFactory("0x0000000000000000000000000000000000000000");
   
             await expect(globalConfigContract.connect(globalConfigOwner).setInitialVaultFactory(mockVaultFactoryContract)).to.be.revertedWith("vault factory is already active");
         

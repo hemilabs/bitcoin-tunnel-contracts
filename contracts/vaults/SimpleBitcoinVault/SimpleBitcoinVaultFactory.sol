@@ -80,6 +80,9 @@ contract SimpleBitcoinVaultFactory is IVaultFactory {
     // Mapping of all vaults based on their index
     mapping(uint32 => SimpleBitcoinVault) public vaults;
 
+    // The address which is allowed to call createVault(), which should be the BitcoinTunnelManager
+    address public permittedVaultCreatorAddr;
+
     /**
      * Used for deploying a new SimpleBitcoinVaultFactory, which in turn deploys a new
      * SimpleGlobalVaultConfig.
@@ -175,6 +178,8 @@ contract SimpleBitcoinVaultFactory is IVaultFactory {
                          uint256,
                          bytes memory) 
                          factoryActiveCheck external returns (IBitcoinVault createdVault) {
+        require(msg.sender == permittedVaultCreatorAddr, "not permitted to create vault");
+
         // Only one vault type (SimpleBitcoinVault) is supoprted by the SimpleBitcoinVaultFactory, 
         // so vaultType does not need to be checked to determine which vault implementation contract
         // to deploy.
@@ -225,8 +230,10 @@ contract SimpleBitcoinVaultFactory is IVaultFactory {
      * vault deployments.
      *
      * Can only be called when the vault has not yet been activated.
+     * 
+     * @param permittedVaultCreator The address which will be allowed to call createVault
     */
-    function activateFactory() external onlyFactoryStatusAdmin {
+    function activateFactory(address permittedVaultCreator) external onlyFactoryStatusAdmin {
         // Ensure the factory isn't already active and is not deprecated. factoryActive is set to
         // false when the factory is deprecated, so both being false indicates pre-activation
         // initial state.
@@ -234,6 +241,8 @@ contract SimpleBitcoinVaultFactory is IVaultFactory {
         "can only activate a factory that has not been activated yet");
 
         factoryActive = true;
+
+        permittedVaultCreatorAddr = permittedVaultCreator;
     }
 
     /**

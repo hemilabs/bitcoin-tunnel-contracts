@@ -302,6 +302,10 @@ contract GlobalConfig {
     // resolve a particular address to its corresponding script.
     address public bitcoinKitAdmin;
 
+    // The address of the contract which created the GlobalConfig and will be permitted to create
+    // vaults on vault factories
+    address public permittedVaultCreator;
+
 
     /**
      * Create a new GlobalConfig with an initial single admin set for all update permissions, along
@@ -367,6 +371,8 @@ contract GlobalConfig {
         bitcoinKitAdmin = globalConfigAdminToSet;
 
         bitcoinKitAddr = bitcoinKitAddrToSet;
+
+        permittedVaultCreator = msg.sender;
     }
 
     /**
@@ -390,7 +396,7 @@ contract GlobalConfig {
 
         vaultFactory = initialVaultFactory;
 
-        vaultFactory.activateFactory();
+        vaultFactory.activateFactory(permittedVaultCreator);
     }
 
     /**
@@ -703,7 +709,7 @@ contract GlobalConfig {
 
         // Set the vault factory to the new implementation
         vaultFactory = pendingActivationVaultFactory;
-        vaultFactory.activateFactory();
+        vaultFactory.activateFactory(permittedVaultCreator);
         pendingActivationVaultFactory = IVaultFactory(address(0));
         vaultUpgradeStartTime = 0;
 
