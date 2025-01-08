@@ -1774,9 +1774,9 @@ const {
         vSize: 292,
         lockTime: 507000,
         inputs: [sweepUTXOInput1], // 1 input is correct withdrawal input count
-        outputs: [output2, outputToCustodian1_1], // First output is (plausibly) a withdrawal output to withdrawee, second is sweep
+        outputs: [output2, outputToCustodian1_1, outputWithOpReturnWithdrawalIndex0], // First output is (plausibly) a withdrawal output to withdrawee, second is sweep
         totalInputs: 1,
-        totalOutputs: 2,
+        totalOutputs: 3,
         containsAllInputs: true,
         containsAllOutputs: true
     }
@@ -4528,9 +4528,6 @@ const {
                 mockSimpleBitcoinVaultStateContract.getAddress()
             );
 
-            // This transaction should be accepted as invalid because it's first input must be connected to the current sweep
-            // through traversal, but it spends a previous output from a transaction that despite spending the current sweep UTXO
-            // correctly has 5 inputs but has two outputs making it an invalid potential sweep
             expect(result).to.equal(false); 
         });
 

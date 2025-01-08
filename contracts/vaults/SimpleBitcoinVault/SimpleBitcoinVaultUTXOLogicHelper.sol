@@ -686,7 +686,7 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
             // The only way this could be valid is as a withdrawal, so check if it aligns with any
             // pending withdrawal
             
-            // A withdrawal cannot have less than two or more than tree outputs
+            // A withdrawal cannot have less than two or more than three outputs
             if (txOutputCount < 2 || txOutputCount > 3) {
                 return true;
             }
