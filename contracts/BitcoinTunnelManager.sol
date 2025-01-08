@@ -323,7 +323,7 @@ contract BitcoinTunnelManager is CommonStructs {
 
         emit WithdrawalInitiated(address(vault), msg.sender, btcAddress, amount, (amount - fee), uuid);
 
-        return (feeSats, uuid);
+        return (fee, uuid);
     }
 
     /**
