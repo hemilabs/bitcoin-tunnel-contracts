@@ -1353,13 +1353,21 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
                 partialLiquidationInProgress = false;
         }
 
-        // Vault liquidation is allowed, set the starting price to 5% higher than oracle reports,
-        // and set starting timestamp for liquidation.
+        // Enable full liquidation and set liquidation starting timestamp.
         fullLiquidationStarted = true;
         fullLiquidationStartTime = block.timestamp;
-        fullLiquidationStartingPrice = (collateralUnitsToBTC * 105) / 100;
+        fullLiquidationStartingPrice = getFullLiquidationBasePrice();
 
+        // Vault liquidation is allowed. Price will start at 5% higher than oracle price and will increase
+        // from there, always based on the current base price reported by the oracle at the time of
+        // recalculating full liquidation price.
         emit FullLiquidationStarted(totalDepositsHeld, fullLiquidationStartingPrice);
+    }
+
+    function getFullLiquidationBasePrice() public view returns (uint256 basePrice) {
+        IAssetPriceOracle oracle = vaultConfig.getPriceOracle();
+        uint256 collateralUnitsToBTC = oracle.getAssetQuantityToBTC();
+        basePrice = (collateralUnitsToBTC * 105) / 100;
     }
 
 
@@ -1527,7 +1535,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
             } catch {
                 // returnSuccess is already false
             }
-            
+
             if (!returnSuccess) {
                 // Vault was unable to pay the bidder with collateral and was unable
                 // to return the hBTC that was used to bid. This should be impossible.
@@ -1621,10 +1629,22 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
     */
     function getCurrentFullLiquidationCollateralPrice() public view returns (uint256 collateralAtomicUnitsPerBTC) {
         uint256 secondsSinceLiquidationStart = block.timestamp - fullLiquidationStartTime;
-        uint256 increasePerPeriod = (fullLiquidationStartingPrice * FULL_LIQUIDATION_INCREASE_INCREMENT_BPS / BPS_DIVISOR);
+
+        // Always calculate the full liquidation base price based on current price from oracle
+        uint256 fullLiquidationBasePrice = getFullLiquidationBasePrice();
+        uint256 increasePerPeriod = (fullLiquidationBasePrice * FULL_LIQUIDATION_INCREASE_INCREMENT_BPS / BPS_DIVISOR);
         uint256 incrementPeriods = secondsSinceLiquidationStart / FULL_LIQUIDATION_INCREASE_TIME;
 
-        return fullLiquidationStartingPrice + (increasePerPeriod * incrementPeriods);
+        uint256 finalPrice = fullLiquidationBasePrice + (increasePerPeriod * incrementPeriods);
+
+        if (finalPrice < fullLiquidationStartingPrice) {
+            // If the final price is lower than the original starting price, use the original starting
+            // price instead so that liquidators never receive less than they expected based on the
+            // original full liquidation event.
+            finalPrice = fullLiquidationStartingPrice;
+        }
+
+        return finalPrice;
     }
 
     /**
