@@ -418,6 +418,7 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         require(newMinDepositFeeSats >= vaultConfig.getMinDepositFeeSats(), "new min deposit fee in sats must be >= the minimum deposit fee in sats from config");
         require(newMinDepositFeeSats <= vaultConfig.getMaxDepositFeeSats(), "new min deposit fee in sats must be <= the maximum deposit fee in sats from config");
         require(newMinDepositFeeSats != minDepositFeeSats, "new min deposit fee sats is not different");
+        require(newMinDepositFeeSats < parentVault.MINIMUM_WITHDRAWAL_SATS(), "new min deposit fee sats is greater than minimum withdrawal sats");
 
         if (parentVault.hasNeverGoneLive()) {
             // Update to min deposit fee allowed immediately
@@ -1508,13 +1509,25 @@ contract SimpleBitcoinVaultState is SimpleBitcoinVaultStructs, ReentrancyGuard {
         "bid is not old enough");
 
         // First, transfer the collateral to the highest bidder
-        bool collateralTransferSuccess = vaultConfig.getPermittedCollateralAssetContract().transfer(pl.currentBidder, pl.currentBidAmount);
+        bool collateralTransferSuccess = false;
+        
+        try vaultConfig.getPermittedCollateralAssetContract().transfer(pl.currentBidder, pl.currentBidAmount) returns (bool transferSuccess) {
+            collateralTransferSuccess = transferSuccess;
+        } catch {
+            // collateralTransferSuccess is already false
+        }
         if (!collateralTransferSuccess) {
             // This should be impossible and indicates a critical issue like not enough
             // collateral existing in the vault to pay the bidder, if this happens
             // then attempt to return the hBTC that was bid and finish the partial
             // liquidation without decreasing the total deposits held.
-            bool returnSuccess = btcTokenContract.transfer(pl.currentBidder, pl.amountSatsToRecover);
+            bool returnSuccess = false;
+            try btcTokenContract.transfer(pl.currentBidder, pl.amountSatsToRecover) returns (bool transferSuccess) {
+                returnSuccess = transferSuccess;
+            } catch {
+                // returnSuccess is already false
+            }
+            
             if (!returnSuccess) {
                 // Vault was unable to pay the bidder with collateral and was unable
                 // to return the hBTC that was used to bid. This should be impossible.
