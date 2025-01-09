@@ -10,6 +10,8 @@ import "../vaults/CommonStructs.sol";
 import "hardhat/console.sol";
 
 contract MockSimpleBitcoinVault is MockBitcoinVault {
+    uint256 public constant MINIMUM_WITHDRAWAL_SATS = 1000000;
+
     SimpleBitcoinVaultState public vaultStateChild;
 
     Status vaultStatus;
