@@ -709,12 +709,28 @@ contract SimpleBitcoinVaultUTXOLogicHelper is SimpleBitcoinVaultStructs, VaultUt
                 return true;
             }
 
-            // The 2nd output (index=1) should have the Bitcoin locking script corersponding to this
-            // vault as the output destination, if it does not it is invalid
-            Output memory sweepChangeOutput = bitcoinKit.getSpecificTxOutput(txid, 1);
-            bytes32 changeOutputScriptHash = keccak256(sweepChangeOutput.script);
-            if (vaultCustodyScriptHash != changeOutputScriptHash) {
-                return true;
+            // The shape of the 2nd output depends on whether this withdrawal returned change,
+            // exactly as accepted by checkWithdrawalFinalizationValidity:
+            //  - 3 outputs: [0]=withdrawal, [1]=change back to this vault (new sweep), [2]=OP_RETURN.
+            //               The 2nd output must pay to this vault's address, otherwise it is invalid.
+            //  - 2 outputs: no-change withdrawal that fully clears the sweep UTXO (rare edge case).
+            //               [0]=withdrawal, [1]=OP_RETURN identifying the withdrawal (zero value).
+            //               Here the 2nd output is NOT a change output, so it must not be required
+            //               to match the vault custody script; a legitimate no-change withdrawal
+            //               would otherwise be mis-flagged as an invalid sweep spend.
+            if (txOutputCount == 3) {
+                Output memory sweepChangeOutput = bitcoinKit.getSpecificTxOutput(txid, 1);
+                bytes32 changeOutputScriptHash = keccak256(sweepChangeOutput.script);
+                if (vaultCustodyScriptHash != changeOutputScriptHash) {
+                    return true;
+                }
+            } else {
+                // Exactly two outputs: the 2nd output must be the zero-value OP_RETURN. A non-zero
+                // 2nd output is not a valid no-change withdrawal shape, so treat it as invalid.
+                Output memory opReturnOutput = bitcoinKit.getSpecificTxOutput(txid, 1);
+                if (opReturnOutput.outValue != 0) {
+                    return true;
+                }
             }
         } else {
             // If more than one input, then this could only be a sweep transaction.
